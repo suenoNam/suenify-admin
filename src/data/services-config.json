@@ -1,0 +1,14 @@
+{
+  "nas": {
+    "directUrl": "https://sueno.myasustor.com:8001/portal/"
+  },
+  "jellyfin": {
+    "directUrl": "https://sueno.myasustor.com/jellyfin"
+  },
+  "main-domain": {
+    "directUrl": "https://sueno.myasustor.com"
+  },
+  "api-deploy": {
+    "directUrl": "https://api.suenify.com"
+  }
+}
