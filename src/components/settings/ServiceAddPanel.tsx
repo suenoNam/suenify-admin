@@ -61,6 +61,7 @@ export default function ServiceAddPanel({ onAdded }: Props) {
       id: createServiceId(trimmedTitle),
       title: trimmedTitle,
       icon,
+      adminGroup: "services",
       internalUrl: trimmedInternalUrl,
       externalUrl: trimmedExternalUrl,
       primary: primaryMode,
