@@ -45,9 +45,7 @@ async function callDirectUrl(url: string): Promise<ServiceCheckResult> {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        url,
-      }),
+      body: JSON.stringify({ url }),
     });
 
     const data = await response.json();
@@ -72,17 +70,52 @@ async function callDirectUrl(url: string): Promise<ServiceCheckResult> {
   }
 }
 
+function getHealthCheckUrl(service: ServiceRegistryItem) {
+  if (service.id === "suenify-web") {
+    return "http://192.168.0.218:3000/api/test";
+  }
+
+  if (service.id === "suenify-admin") {
+    return "http://192.168.0.218:3001/api/system/status";
+  }
+
+  if (service.id === "ollama" || service.id === "gemma-model") {
+    return "http://127.0.0.1:11434/api/tags";
+  }
+
+  return getPrimaryUrl(service);
+}
+
 export async function checkServiceStatus(
   service: ServiceRegistryItem
 ): Promise<ServiceCheckResult> {
+  const healthCheckUrl = getHealthCheckUrl(service);
+
+  if (
+    service.id === "suenify-web" ||
+    service.id === "suenify-admin" ||
+    service.id === "ollama" ||
+    service.id === "gemma-model"
+  ) {
+    if (!healthCheckUrl) {
+      return {
+        success: false,
+        responseTime: null,
+        statusCode: null,
+        message: "체크할 URL이 없습니다.",
+        checkedUrl: "",
+      };
+    }
+
+    return callDirectUrl(healthCheckUrl);
+  }
+
   const mode = service.monitorMode ?? "direct";
 
-  // 1. 내부 API 방식
   if (mode === "internal-api") {
     return callInternalApi(service.id);
   }
 
-  // 2. 직접 URL 체크 방식
   const url = getPrimaryUrl(service);
 
   if (!url) {

@@ -1226,9 +1226,9 @@ useEffect(() => {
 
             {activeView === "dashboard" ? (
   <>
-   <SystemStatusPanel />
 
-    <section className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+
+    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
       {sortedDashboardCards.map((card) => (
         <StatusCard
   id={card.id}
@@ -1287,6 +1287,7 @@ useEffect(() => {
       onCheck={handleManualCheck}
       onDelete={() => setIsDeleteConfirmOpen(true)}
     />
+    {activeView === "mac-mini" ? <SystemStatusPanel /> : null}
 
     {activeView === "nas" ? (
       <>
