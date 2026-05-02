@@ -71,6 +71,9 @@ async function callDirectUrl(url: string): Promise<ServiceCheckResult> {
 }
 
 function getHealthCheckUrl(service: ServiceRegistryItem) {
+    if (service.id === "mac-mini") {
+    return "http://192.168.0.218:3001/api/system/status";
+  }
   if (service.id === "suenify-web") {
     return "http://192.168.0.218:3000/api/test";
   }
@@ -92,6 +95,7 @@ export async function checkServiceStatus(
   const healthCheckUrl = getHealthCheckUrl(service);
 
   if (
+    service.id === "mac-mini" ||
     service.id === "suenify-web" ||
     service.id === "suenify-admin" ||
     service.id === "ollama" ||
