@@ -140,14 +140,14 @@ export default function AdminSidebar({
   onSelectView,
 }: AdminSidebarProps) {
   const [openGroups, setOpenGroups] = useState<Record<GroupKey, boolean>>({
-    server: true,
-    services: true,
-    ai: true,
-    api: true,
-    storage: true,
-  });
+  server: true,
+  services: false,
+  ai: false,
+  api: false,
+  storage: false,
+});
 
-  const [settingsGroupOpen, setSettingsGroupOpen] = useState(true);
+const [settingsGroupOpen, setSettingsGroupOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
