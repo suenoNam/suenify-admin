@@ -32,7 +32,36 @@ async function callInternalApi(serviceId: string): Promise<ServiceCheckResult> {
       success: false,
       responseTime: null,
       statusCode: null,
-      message: "내부 API 호출 실패",
+      message: "내부 SUMMARY API 호출 실패",
+      checkedUrl: "",
+    };
+  }
+}
+
+async function callHealthApi(serviceId: string): Promise<ServiceCheckResult> {
+  try {
+    const res = await fetch(`/api/internal/health/${serviceId}`, {
+      method: "GET",
+      cache: "no-store",
+    });
+
+    const data = await res.json();
+
+    return {
+      success: Boolean(data.success),
+      responseTime:
+        typeof data.responseTime === "number" ? data.responseTime : null,
+      statusCode:
+        typeof data.statusCode === "number" ? data.statusCode : null,
+      message: data.message ?? "상태 확인 결과가 없습니다.",
+      checkedUrl: data.checkedUrl ?? "",
+    };
+  } catch {
+    return {
+      success: false,
+      responseTime: null,
+      statusCode: null,
+      message: "내부 HEALTH API 호출 실패",
       checkedUrl: "",
     };
   }
@@ -91,27 +120,23 @@ function getHealthCheckUrl(service: ServiceRegistryItem) {
     return "http://192.168.0.218:28096";
   }
 
-  if (service.id === "main-domain") {
-    return "https://sueno.myasustor.com";
-  }
-
   return getPrimaryUrl(service);
 }
 
 export async function checkServiceStatus(
   service: ServiceRegistryItem
 ): Promise<ServiceCheckResult> {
-
-  // 🔥 인프라 서비스는 내부 API로 처리 (핵심 수정)
   if (
     service.id === "npm" ||
     service.id === "portainer" ||
-    service.id === "nas" ||
     service.id === "nas-storage" ||
-    service.id === "backup" ||
-    service.id === "deploy"
+    service.id === "main-domain"
   ) {
-    return callInternalApi(service.id);
+    return callHealthApi(service.id);
+  }
+
+  if (service.id === "nas") {
+    return callInternalApi("nas");
   }
 
   const healthCheckUrl = getHealthCheckUrl(service);
