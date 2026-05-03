@@ -540,6 +540,9 @@ function DeployHealthPanel() {
   const [deployHealth, setDeployHealth] =
     useState<DeployHealthResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [deployingTarget, setDeployingTarget] = useState<"admin" | "web" | null>(
+    null
+  );
 
   async function loadDeployHealth() {
     try {
@@ -559,6 +562,29 @@ function DeployHealthPanel() {
     }
   }
 
+  async function runDeploy(target: "admin" | "web") {
+    try {
+      setDeployingTarget(target);
+
+      const response = await fetch("/api/deploy/run", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ target }),
+      });
+
+      const data = await response.json();
+      console.log(data);
+
+      await loadDeployHealth();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setDeployingTarget(null);
+    }
+  }
+
   useEffect(() => {
     void loadDeployHealth();
 
@@ -573,7 +599,7 @@ function DeployHealthPanel() {
 
   return (
     <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
-      <div className="mb-5 flex items-center justify-between">
+      <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h3 className="text-xl font-semibold text-white">
             Deploy Server Health
@@ -583,14 +609,34 @@ function DeployHealthPanel() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={loadDeployHealth}
-          disabled={loading}
-          className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 hover:bg-white/10 disabled:opacity-50"
-        >
-          {loading ? "확인 중" : "새로고침"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => runDeploy("admin")}
+            disabled={deployingTarget !== null}
+            className="rounded-full bg-blue-500/20 px-4 py-2 text-sm text-blue-300 transition hover:bg-blue-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {deployingTarget === "admin" ? "Admin 배포 중" : "Admin 배포"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => runDeploy("web")}
+            disabled={deployingTarget !== null}
+            className="rounded-full bg-purple-500/20 px-4 py-2 text-sm text-purple-300 transition hover:bg-purple-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {deployingTarget === "web" ? "Web 배포 중" : "Web 배포"}
+          </button>
+
+          <button
+            type="button"
+            onClick={loadDeployHealth}
+            disabled={loading}
+            className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
+          >
+            {loading ? "확인 중" : "새로고침"}
+          </button>
+        </div>
       </div>
 
       {!deployHealth ? (
