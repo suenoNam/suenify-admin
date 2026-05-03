@@ -13,6 +13,7 @@ export type ViewType =
   | "suenify-web"
   | "suenify-admin"
   | "jellyfin"
+  | "deploy-server"
   | "npm"
   | "portainer"
 

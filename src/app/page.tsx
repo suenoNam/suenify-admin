@@ -122,6 +122,18 @@ type SystemStatusResponse = {
     }[];
   };
 };
+type DeployHealthResponse = {
+  ok: boolean;
+  service: string;
+  uptimeSeconds: number;
+  lastDeploy: {
+    service: string | null;
+    status: "none" | "running" | "success" | "failed";
+    message: string;
+    startedAt: string | null;
+    finishedAt: string | null;
+  };
+};
 const MAX_DYNAMIC_LOGS = 120;
 
 function StatusSlot({ state }: { state: ActionState }) {
@@ -523,6 +535,123 @@ function SystemStatusPanel() {
     </section>
   );
 }
+
+function DeployHealthPanel() {
+  const [deployHealth, setDeployHealth] =
+    useState<DeployHealthResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function loadDeployHealth() {
+    try {
+      setLoading(true);
+
+      const response = await fetch("https://deploy.suenify.com/health", {
+        cache: "no-store",
+      });
+
+      const data = await response.json();
+      setDeployHealth(data);
+    } catch (error) {
+      console.error(error);
+      setDeployHealth(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadDeployHealth();
+
+    const interval = window.setInterval(() => {
+      void loadDeployHealth();
+    }, 15000);
+
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const lastDeploy = deployHealth?.lastDeploy;
+
+  return (
+    <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
+      <div className="mb-5 flex items-center justify-between">
+        <div>
+          <h3 className="text-xl font-semibold text-white">
+            Deploy Server Health
+          </h3>
+          <p className="mt-1 text-sm text-slate-400">
+            자동 배포 서버의 상태와 최근 배포 결과를 확인합니다.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={loadDeployHealth}
+          disabled={loading}
+          className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 hover:bg-white/10 disabled:opacity-50"
+        >
+          {loading ? "확인 중" : "새로고침"}
+        </button>
+      </div>
+
+      {!deployHealth ? (
+        <p className="text-sm text-slate-500">
+          배포 서버 상태를 불러오지 못했습니다.
+        </p>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-2xl bg-black/20 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+              Server
+            </p>
+            <p className="mt-2 text-lg font-semibold text-white">
+              {deployHealth.service}
+            </p>
+            <p className="mt-2 text-sm text-slate-400">
+              uptime {deployHealth.uptimeSeconds}s
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-black/20 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+              Last Deploy Service
+            </p>
+            <p className="mt-2 text-lg font-semibold text-white">
+              {lastDeploy?.service ?? "-"}
+            </p>
+            <p className="mt-2 text-sm text-slate-400">최근 배포 대상</p>
+          </div>
+
+          <div className="rounded-2xl bg-black/20 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+              Last Deploy Status
+            </p>
+            <p className="mt-2 text-lg font-semibold text-white">
+              {lastDeploy?.status ?? "-"}
+            </p>
+            <p className="mt-2 text-sm text-slate-400">
+              {lastDeploy?.message ?? "-"}
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-black/20 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+              Finished At
+            </p>
+            <p className="mt-2 text-sm font-semibold text-white">
+              {lastDeploy?.finishedAt
+                ? formatStoredDate(lastDeploy.finishedAt)
+                : "-"}
+            </p>
+            <p className="mt-2 text-sm text-slate-400">
+              마지막 배포 완료 시간
+            </p>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 
 export default function Home() {
   const [allCards, setAllCards] = useState<StatusCardItem[]>([]);
@@ -1288,6 +1417,8 @@ useEffect(() => {
       onDelete={() => setIsDeleteConfirmOpen(true)}
     />
     {activeView === "mac-mini" ? <SystemStatusPanel /> : null}
+
+    {activeView === "deploy-server" ? <DeployHealthPanel /> : null}
 
     {activeView === "nas" ? (
       <>
