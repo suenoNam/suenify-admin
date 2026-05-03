@@ -71,19 +71,36 @@ async function callDirectUrl(url: string): Promise<ServiceCheckResult> {
 }
 
 function getHealthCheckUrl(service: ServiceRegistryItem) {
-    if (service.id === "mac-mini") {
+  if (service.id === "mac-mini") {
     return "http://192.168.0.218:3001/api/system/status";
   }
+
   if (service.id === "suenify-web") {
-    return "http://192.168.0.218:3000/api/test";
+    return "http://192.168.0.218:3000";
   }
 
   if (service.id === "suenify-admin") {
-    return "http://192.168.0.218:3001/api/system/status";
+    return "http://192.168.0.218:3001";
   }
 
   if (service.id === "ollama" || service.id === "gemma-model") {
     return "http://127.0.0.1:11434/api/tags";
+  }
+
+  if (service.id === "jellyfin") {
+    return "http://192.168.0.218:28096";
+  }
+
+  if (service.id === "portainer") {
+    return "https://sueno.myasustor.com:19943";
+  }
+
+  if (service.id === "npm") {
+    return "http://192.168.0.218";
+  }
+
+  if (service.id === "main-domain") {
+    return "https://sueno.myasustor.com";
   }
 
   return getPrimaryUrl(service);
@@ -92,37 +109,18 @@ function getHealthCheckUrl(service: ServiceRegistryItem) {
 export async function checkServiceStatus(
   service: ServiceRegistryItem
 ): Promise<ServiceCheckResult> {
-  const healthCheckUrl = getHealthCheckUrl(service);
 
+  // ✅ 내부 API로 체크할 서비스
   if (
-    service.id === "mac-mini" ||
-    service.id === "suenify-web" ||
-    service.id === "suenify-admin" ||
-    service.id === "ollama" ||
-    service.id === "gemma-model"
+    service.id === "npm" ||
+    service.id === "portainer"
   ) {
-    if (!healthCheckUrl) {
-      return {
-        success: false,
-        responseTime: null,
-        statusCode: null,
-        message: "체크할 URL이 없습니다.",
-        checkedUrl: "",
-      };
-    }
-
-    return callDirectUrl(healthCheckUrl);
-  }
-
-  const mode = service.monitorMode ?? "direct";
-
-  if (mode === "internal-api") {
     return callInternalApi(service.id);
   }
 
-  const url = getPrimaryUrl(service);
+  const healthCheckUrl = getHealthCheckUrl(service);
 
-  if (!url) {
+  if (!healthCheckUrl) {
     return {
       success: false,
       responseTime: null,
@@ -132,5 +130,5 @@ export async function checkServiceStatus(
     };
   }
 
-  return callDirectUrl(url);
+  return callDirectUrl(healthCheckUrl);
 }
