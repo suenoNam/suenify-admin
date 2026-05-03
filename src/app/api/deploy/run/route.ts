@@ -1,45 +1,33 @@
-const ADMIN_TRIGGER_SECRET = "suenify-admin-trigger-secret-2026";
+import { NextRequest } from "next/server";
 
-export async function POST(request: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const body = await request.json();
-    const target = body?.target;
-
-    if (target !== "admin" && target !== "web") {
-      return Response.json(
-        { ok: false, message: "Invalid deploy target" },
-        { status: 400 }
-      );
-    }
-
-    const res = await fetch(`https://deploy.suenify.com/trigger/${target}`, {
+    // 1. deploy 요청
+    await fetch("https://deploy.suenify.com/trigger/web", {
       method: "POST",
       headers: {
-        "x-suenify-admin-secret": ADMIN_TRIGGER_SECRET,
+        "x-suenify-admin-secret": "suenify-admin-trigger-secret-2026",
       },
-      cache: "no-store",
     });
 
-    const text = await res.text();
+    // 2. 잠깐 대기 (빌드 시간)
+    await new Promise((r) => setTimeout(r, 3000));
 
-    if (!res.ok) {
-      return Response.json(
-        { ok: false, message: text },
-        { status: res.status }
-      );
-    }
+    // 3. health 체크
+    const health = await fetch(
+      "http://localhost:3001/api/internal/health/suenify-web"
+    );
+
+    const result = await health.json();
 
     return Response.json({
-      ok: true,
-      target,
-      message: text,
+      success: true,
+      health: result,
     });
-  } catch (error) {
-    console.error(error);
-
-    return Response.json(
-      { ok: false, message: "Deploy trigger failed" },
-      { status: 500 }
-    );
+  } catch (e) {
+    return Response.json({
+      success: false,
+      error: "deploy failed",
+    });
   }
 }
