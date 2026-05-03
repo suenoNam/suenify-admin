@@ -545,7 +545,7 @@ function DeployHealthPanel() {
     try {
       setLoading(true);
 
-      const response = await fetch("https://deploy.suenify.com/health", {
+      const response = await fetch("/api/deploy", {
         cache: "no-store",
       });
 
