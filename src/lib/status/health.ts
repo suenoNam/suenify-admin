@@ -1,28 +1,19 @@
-export type HealthResult = {
-  type: "online" | "warning" | "error";
-  status: string;
-};
+export async function checkService(url: string) {
+  try {
+    const res = await fetch(url, { method: "GET" });
 
-export function evaluateHealth(
-  ok: boolean,
-  responseTimeMs: number
-): HealthResult {
-  if (!ok) {
+    if (!res) {
+      return { type: "error", status: "Error" };
+    }
+
+    return {
+      type: "online",
+      status: "Online",
+    };
+  } catch (e) {
     return {
       type: "error",
-      status: "offline",
+      status: "Error",
     };
   }
-
-  if (responseTimeMs > 2000) {
-    return {
-      type: "warning",
-      status: "slow",
-    };
-  }
-
-  return {
-    type: "online",
-    status: "online",
-  };
 }
