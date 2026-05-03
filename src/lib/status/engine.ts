@@ -91,14 +91,6 @@ function getHealthCheckUrl(service: ServiceRegistryItem) {
     return "http://192.168.0.218:28096";
   }
 
-  if (service.id === "portainer") {
-    return "https://sueno.myasustor.com:19943";
-  }
-
-  if (service.id === "npm") {
-    return "http://192.168.0.218";
-  }
-
   if (service.id === "main-domain") {
     return "https://sueno.myasustor.com";
   }
@@ -110,10 +102,14 @@ export async function checkServiceStatus(
   service: ServiceRegistryItem
 ): Promise<ServiceCheckResult> {
 
-  // ✅ 내부 API로 체크할 서비스
+  // 🔥 인프라 서비스는 내부 API로 처리 (핵심 수정)
   if (
     service.id === "npm" ||
-    service.id === "portainer"
+    service.id === "portainer" ||
+    service.id === "nas" ||
+    service.id === "nas-storage" ||
+    service.id === "backup" ||
+    service.id === "deploy"
   ) {
     return callInternalApi(service.id);
   }
