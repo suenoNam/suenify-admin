@@ -1,83 +1,141 @@
-import { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
-function evaluateResponse(ok: boolean, statusCode: number | null, responseMs: number | null) {
-  if (!ok) {
-    return {
-      success: false,
-      type: "error",
-      status: "Error",
-      message: "응답 실패",
-    };
-  }
+import http from "node:http";
 
-  if (responseMs !== null && responseMs > 2000) {
-    return {
-      success: true,
-      type: "warning",
-      status: "Slow",
-      message: "응답은 있지만 느립니다.",
-    };
-  }
+import https from "node:https";
 
-  return {
-    success: true,
-    type: "online",
-    status: "Online",
-    message: "응답 정상",
-  };
+function requestUrl(url: string) {
+
+  return new Promise<{
+
+    success: boolean;
+
+    statusCode: number | null;
+
+    responseTime: number | null;
+
+    message: string;
+
+  }>((resolve) => {
+
+    const startedAt = Date.now();
+
+    const isHttps = url.startsWith("https://");
+
+    const client = isHttps ? https : http;
+
+    const req = client.request(
+
+      url,
+
+      {
+
+        method: "GET",
+
+        rejectUnauthorized: false,
+
+      },
+
+      (res) => {
+
+        const responseTime = Date.now() - startedAt;
+
+        const statusCode = res.statusCode ?? null;
+
+        resolve({
+
+          success: typeof statusCode === "number" && statusCode >= 200 && statusCode < 400,
+
+          statusCode,
+
+          responseTime,
+
+          message:
+
+            typeof statusCode === "number"
+
+              ? `응답 수신 (${statusCode})`
+
+              : "응답 수신",
+
+        });
+
+        res.resume();
+
+      }
+
+    );
+
+    req.on("error", (error) => {
+
+      resolve({
+
+        success: false,
+
+        statusCode: null,
+
+        responseTime: null,
+
+        message: error.message || "체크 중 오류 발생",
+
+      });
+
+    });
+
+    req.setTimeout(5000, () => {
+
+      req.destroy(new Error("요청 시간 초과"));
+
+    });
+
+    req.end();
+
+  });
+
 }
 
-export async function GET(req: NextRequest) {
-  const url = req.nextUrl.searchParams.get("url");
-
-  if (!url) {
-    return Response.json({
-      success: false,
-      ok: false,
-      type: "error",
-      status: "Error",
-      statusCode: null,
-      responseTime: null,
-      responseMs: null,
-      checkedUrl: "",
-      message: "체크할 URL이 없습니다.",
-    });
-  }
-
-  const startedAt = Date.now();
+export async function POST(request: Request) {
 
   try {
-    const response = await fetch(url, {
-      method: "GET",
-      cache: "no-store",
-      redirect: "follow",
-    });
 
-    const responseMs = Date.now() - startedAt;
+    const body = await request.json();
 
-    // 500번대만 장애로 판단. 401/403/404도 “서버 응답 있음”으로 본다.
-    const reachable = response.status < 500;
-    const evaluated = evaluateResponse(reachable, response.status, responseMs);
+    const url = String(body.url || "").trim();
 
-    return Response.json({
-      ...evaluated,
-      ok: reachable,
-      statusCode: response.status,
-      responseTime: responseMs,
-      responseMs,
-      checkedUrl: url,
-    });
-  } catch {
-    return Response.json({
+    if (!url) {
+
+      return NextResponse.json({
+
+        success: false,
+
+        message: "URL이 없습니다.",
+
+        statusCode: null,
+
+        responseTime: null,
+
+      });
+
+    }
+
+    const result = await requestUrl(url);
+
+    return NextResponse.json(result);
+
+  } catch (error) {
+
+    return NextResponse.json({
+
       success: false,
-      ok: false,
-      type: "error",
-      status: "Error",
+
+      message: error instanceof Error ? error.message : "체크 중 오류 발생",
+
       statusCode: null,
+
       responseTime: null,
-      responseMs: null,
-      checkedUrl: url,
-      message: "요청 자체가 실패했습니다.",
+
     });
+
   }
+
 }

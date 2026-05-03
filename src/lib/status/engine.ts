@@ -40,13 +40,13 @@ async function callInternalApi(serviceId: string): Promise<ServiceCheckResult> {
 
 async function callDirectUrl(url: string): Promise<ServiceCheckResult> {
   try {
-    const response = await fetch(
-      `/api/internal/check-url?url=${encodeURIComponent(url)}`,
-      {
-        method: "GET",
-        cache: "no-store",
-      }
-    );
+    const response = await fetch("/api/internal/check-url", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ url }),
+    });
 
     const data = await response.json();
 
@@ -57,7 +57,7 @@ async function callDirectUrl(url: string): Promise<ServiceCheckResult> {
       statusCode:
         typeof data.statusCode === "number" ? data.statusCode : null,
       message: String(data.message || "상태 확인 결과가 없습니다."),
-      checkedUrl: data.checkedUrl || url,
+      checkedUrl: url,
     };
   } catch {
     return {

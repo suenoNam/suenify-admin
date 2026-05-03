@@ -1,110 +1,73 @@
-import { NextRequest } from "next/server";
-import { getServiceById, getPrimaryUrl } from "@/lib/services/registry";
+import { NextRequest, NextResponse } from "next/server";
 
-function evaluateResponse(ok: boolean, responseMs: number | null) {
-  if (!ok) {
-    return {
-      success: false,
-      type: "error",
-      status: "Error",
-      message: "응답 실패",
-    };
-  }
-
-  if (responseMs !== null && responseMs > 2000) {
-    return {
-      success: true,
-      type: "warning",
-      status: "Slow",
-      message: "응답은 있지만 느립니다.",
-    };
-  }
-
-  return {
-    success: true,
-    type: "online",
-    status: "Online",
-    message: "응답 정상",
-  };
-}
+type NasStatusResponse = {
+  서버상태?: string;
+  외부주소?: string;
+  내부주소?: string;
+  저장소사용률?: string;
+  CPU사용률?: string;
+  RAM사용률?: string;
+  총저장공간?: string;
+  현재사용량?: string;
+  업데이트시간?: string;
+};
 
 export async function GET(
-  req: NextRequest,
+  _request: NextRequest,
   context: { params: Promise<{ service: string }> }
 ) {
   const { service } = await context.params;
-  const serviceData = getServiceById(service);
 
-  if (!serviceData) {
-    return Response.json({
-      success: false,
-      ok: false,
-      type: "error",
-      status: "Error",
-      statusCode: null,
-      responseTime: null,
-      responseMs: null,
-      checkedUrl: "",
-      message: "등록되지 않은 서비스입니다.",
-    });
+  if (service === "nas") {
+    try {
+      const response = await fetch("http://192.168.0.44:5050/nas/status", {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "NAS 상태 조회 실패",
+          },
+          { status: 500 }
+        );
+      }
+
+      const data = (await response.json()) as NasStatusResponse;
+
+      return NextResponse.json({
+        success: true,
+        service: "nas",
+        data: {
+          서버상태: data.서버상태 ?? "확인 실패",
+          외부주소: data.외부주소 ?? "-",
+          내부주소: data.내부주소 ?? "-",
+          저장소사용률: data.저장소사용률 ?? "-",
+          CPU사용률: data.CPU사용률 ?? "-",
+          RAM사용률: data.RAM사용률 ?? "-",
+          총저장공간: data.총저장공간 ?? "-",
+          현재사용량: data.현재사용량 ?? "-",
+          업데이트시간: data.업데이트시간 ?? "-",
+        },
+      });
+    } catch (error) {
+      console.error("NAS API 연결 실패", error);
+
+      return NextResponse.json(
+        {
+          success: false,
+          message: "NAS API 연결 실패",
+        },
+        { status: 500 }
+      );
+    }
   }
 
-  const url =
-    serviceData.metadata?.lastCheckedUrl ||
-    getPrimaryUrl(serviceData);
-
-  if (!url) {
-    return Response.json({
-      success: false,
-      ok: false,
-      type: "error",
-      status: "Error",
-      statusCode: null,
-      responseTime: null,
-      responseMs: null,
-      checkedUrl: "",
-      message: "체크할 URL이 없습니다.",
-    });
-  }
-
-  const startedAt = Date.now();
-
-  try {
-    const response = await fetch(url, {
-      method: "GET",
-      cache: "no-store",
-      redirect: "follow",
-    });
-
-    const responseMs = Date.now() - startedAt;
-
-    // 500번대만 장애로 판단. 401/403/404도 “서버 응답 있음”으로 본다.
-    const reachable = response.status < 500;
-    const evaluated = evaluateResponse(reachable, responseMs);
-
-    return Response.json({
-      ...evaluated,
-      ok: reachable,
-      service: serviceData.id,
-      title: serviceData.title,
-      statusCode: response.status,
-      responseTime: responseMs,
-      responseMs,
-      checkedUrl: url,
-    });
-  } catch {
-    return Response.json({
-      success: false,
-      ok: false,
-      service: serviceData.id,
-      title: serviceData.title,
-      type: "error",
-      status: "Error",
-      statusCode: null,
-      responseTime: null,
-      responseMs: null,
-      checkedUrl: url,
-      message: "요청 자체가 실패했습니다.",
-    });
-  }
+  return NextResponse.json({
+    success: true,
+    service,
+    message: "라우트 연결 확인",
+  });
 }
