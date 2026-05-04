@@ -404,12 +404,15 @@ memory: isMacMini
     }%)`
   : service.memory,
 
-storage:
-  target.name.toLowerCase().includes("nas")
-    ? `${data.storage?.usedGB ?? "-"}GB / ${data.storage?.totalTB ?? "-"}TB (${
-        data.storage?.usedPercent ?? "-"
-      }%)`
-    : service.storage,
+storage: isMacMini
+  ? `${data.storage?.usedGB ?? "-"}GB / ${data.storage?.totalGB ?? "-"}GB (${
+      data.storage?.usedPercent ?? "-"
+    }%)`
+  : target.name.toLowerCase().includes("nas")
+  ? `${data.storage?.usedGB ?? "-"}GB / ${data.storage?.totalTB ?? "-"}TB (${
+      data.storage?.usedPercent ?? "-"
+    }%)`
+  : service.storage,
 
                 traffic:
                   target.id === "suenify"
