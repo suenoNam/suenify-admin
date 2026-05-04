@@ -33,7 +33,7 @@ type View =
   | "settings-logs"
   | string;
 
-type ServiceKind = "서버&AI" | "서비스" | "미디어" | "기타" | "API";
+type ServiceKind = "서버" | "AI" | "서비스" | "미디어" | "기타" | "API";
 type StatusType = "online" | "offline" | "checking" | "unknown";
 
 type GroupItem = {
@@ -87,11 +87,11 @@ const defaultServices: ServiceItem[] = [
   {
     id: "mac-mini-server",
     name: "맥미니 서버",
-    kind: "서버&AI",
+    kind: "서버",
     internalUrl: "",
     externalUrl: "",
     groupId: "main",
-    description: "Suenify 기본 서버이자 Gemma 운영 기반 서버입니다.",
+    description: "Suenify 기본 서버입니다.",
     status: "unknown",
     lastCheckedAt: "-",
     order: 1,
@@ -100,35 +100,33 @@ const defaultServices: ServiceItem[] = [
     storage: "-",
   },
   {
-    id: "gemma",
-    name: "젬마",
-    kind: "서버&AI",
-    internalUrl: "",
+    id: "ollama",
+    name: "Ollama",
+    kind: "AI",
+    internalUrl: "http://192.168.0.218:11434",
     externalUrl: "",
     groupId: "main",
-    description: "맥미니에서 운영할 로컬 AI 모델 서버입니다.",
+    description: "맥미니에서 실행되는 로컬 AI 서버입니다.",
     status: "unknown",
     lastCheckedAt: "-",
     order: 2,
+    connectionInfo: "-",
+  },
+  {
+    id: "nas",
+    name: "NAS",
+    kind: "서버",
+    internalUrl: "http://192.168.0.44",
+    externalUrl: "",
+    groupId: "main",
+    description: "ASUSTOR NAS 상태 모니터링",
+    status: "unknown",
+    lastCheckedAt: "-",
+    order: 3,
     cpu: "-",
     memory: "-",
     storage: "-",
   },
-  {
-  id: "nas",
-  name: "NAS",
-  kind: "서버&AI",
-  internalUrl: "http://192.168.0.44",
-  externalUrl: "",
-  groupId: "main",
-  description: "ASUSTOR NAS 상태 모니터링",
-  status: "unknown",
-  lastCheckedAt: "-",
-  order: 3,
-  cpu: "-",
-  memory: "-",
-  storage: "-",
-},
   {
     id: "suenify",
     name: "suenify",
@@ -139,7 +137,7 @@ const defaultServices: ServiceItem[] = [
     description: "Suenify 메인 서비스입니다.",
     status: "unknown",
     lastCheckedAt: "-",
-    order: 3,
+    order: 4,
     traffic: "-",
   },
 ];
@@ -164,7 +162,8 @@ function displayServiceName(name: string) {
 }
 
 function getServiceIcon(kind: ServiceKind) {
-  if (kind === "서버&AI") return Server;
+  if (kind === "서버") return Server;
+  if (kind === "AI") return Bot;
   if (kind === "API") return Activity;
   if (kind === "미디어") return HardDrive;
   if (kind === "서비스") return Bot;
@@ -216,28 +215,24 @@ async function checkUrl(url: string) {
     };
   }
 }
+
 const HEALTH_ENDPOINTS: Record<string, string> = {
   "mac-mini-server": "/api/health/mac-mini",
-  gemma: "/api/health/ollama",
+  ollama: "/api/health/ollama",
   suenify: "/api/health/suenify",
   nas: "/api/health/nas",
 };
+
 function getHealthEndpoint(service: ServiceItem) {
-  // Mac mini
-  if (
-    service.id === "mac-mini-server" ||
-    service.name.includes("맥미니")
-  ) {
+  if (service.id === "mac-mini-server" || service.name.includes("맥미니")) {
     return "/api/health/mac-mini";
   }
 
-  // NAS 🔥 추가
-  if (service.name.toLowerCase().includes("nas")) {
+  if (service.id === "nas" || service.name.toLowerCase().includes("nas")) {
     return "/api/health/nas";
   }
 
-  // Gemma
-  if (service.name.toLowerCase().includes("gemma")) {
+  if (service.id === "ollama" || service.name.toLowerCase().includes("ollama")) {
     return "/api/health/ollama";
   }
 
@@ -354,31 +349,90 @@ export default function Home() {
   }
 
   async function refreshService(serviceId: string) {
-  const target = services.find((service) => service.id === serviceId);
-  if (!target) return;
+    const target = services.find((service) => service.id === serviceId);
+    if (!target) return;
 
-  // 상태: 확인중
-  setServices((prev) =>
-    prev.map((service) =>
-      service.id === serviceId ? { ...service, status: "checking" } : service
-    )
-  );
+    setServices((prev) =>
+      prev.map((service) =>
+        service.id === serviceId ? { ...service, status: "checking" } : service
+      )
+    );
 
-  const endpoint = getHealthEndpoint(target);
+    const endpoint = getHealthEndpoint(target);
 
-const isMacMini =
-  target.id === "mac-mini-server" ||
-  target.id === "mac-mini" ||
-  target.name.includes("맥미니");
+    const isMacMini =
+      target.id === "mac-mini-server" ||
+      target.id === "mac-mini" ||
+      target.name.includes("맥미니");
 
-  try {
-    // ✅ API 있는 서비스
-    if (endpoint) {
-      const res = await fetch(endpoint, { cache: "no-store" });
-      const data = await res.json();
+    const isNas =
+      target.id === "nas" || target.name.toLowerCase().includes("nas");
 
-      const nextStatus: StatusType =
-  data && (data.ok === true || data.service) ? "online" : "offline";
+    const isOllama =
+      target.id === "ollama" || target.name.toLowerCase().includes("ollama");
+
+    try {
+      if (endpoint) {
+        const res = await fetch(endpoint, { cache: "no-store" });
+        const data = await res.json();
+
+        const nextStatus: StatusType = data?.ok === true ? "online" : "offline";
+
+        setServices((prev) =>
+          prev.map((service) =>
+            service.id === serviceId
+              ? {
+                  ...service,
+                  status: nextStatus,
+                  lastCheckedAt: data.ok ? nowText() : service.lastCheckedAt,
+
+                  cpu:
+                    isMacMini || isNas
+                      ? data.cpu?.usage ?? service.cpu
+                      : service.cpu,
+
+                  memory: isMacMini
+                    ? `${data.memory?.usedGB ?? "-"}GB / ${
+                        data.memory?.totalGB ?? "-"
+                      }GB (${data.memory?.usedPercent ?? "-"}%)`
+                    : isNas
+                    ? `${data.memory?.usedMB ?? "-"}MB / ${
+                        data.memory?.totalMB ?? "-"
+                      }MB (${data.memory?.usedPercent ?? "-"}%)`
+                    : service.memory,
+
+                  storage: isMacMini
+                    ? `${data.storage?.usedGB ?? "-"}GB / ${
+                        data.storage?.totalGB ?? "-"
+                      }GB (${data.storage?.usedPercent ?? "-"}%)`
+                    : isNas
+                    ? `${data.storage?.usedGB ?? "-"}GB / ${
+                        data.storage?.totalTB ?? "-"
+                      }TB (${data.storage?.usedPercent ?? "-"}%)`
+                    : service.storage,
+
+                  traffic:
+                    target.id === "suenify"
+                      ? `${data.responseTime ?? "-"}ms`
+                      : service.traffic,
+
+                  connectionInfo: isOllama
+                    ? data.models?.length
+                      ? `모델 ${data.models.length}개`
+                      : "모델 없음"
+                    : service.connectionInfo,
+                }
+              : service
+          )
+        );
+
+        addLog(target.name, nextStatus, data.message || "상태 확인 완료");
+        return;
+      }
+
+      const url = target.externalUrl || target.internalUrl;
+      const result = await checkUrl(url);
+      const nextStatus: StatusType = result.ok ? "online" : "offline";
 
       setServices((prev) =>
         prev.map((service) =>
@@ -386,97 +440,38 @@ const isMacMini =
             ? {
                 ...service,
                 status: nextStatus,
-                lastCheckedAt: data.ok ? nowText() : service.lastCheckedAt,
-
-                // 🔥 서비스별 데이터 연결
-               cpu:
-  isMacMini || target.name.toLowerCase().includes("nas")
-    ? data.cpu?.usage ?? service.cpu
-    : service.cpu,
-
-memory: isMacMini
-  ? `${data.memory?.usedGB ?? "-"}GB / ${data.memory?.totalGB ?? "-"}GB (${
-      data.memory?.usedPercent ?? "-"
-    }%)`
-  : target.name.toLowerCase().includes("nas")
-  ? `${data.memory?.usedMB ?? "-"}MB / ${data.memory?.totalMB ?? "-"}MB (${
-      data.memory?.usedPercent ?? "-"
-    }%)`
-  : service.memory,
-
-storage: isMacMini
-  ? `${data.storage?.usedGB ?? "-"}GB / ${data.storage?.totalGB ?? "-"}GB (${
-      data.storage?.usedPercent ?? "-"
-    }%)`
-  : target.name.toLowerCase().includes("nas")
-  ? `${data.storage?.usedGB ?? "-"}GB / ${data.storage?.totalTB ?? "-"}TB (${
-      data.storage?.usedPercent ?? "-"
-    }%)`
-  : service.storage,
-
-                traffic:
-                  target.id === "suenify"
-                    ? `${data.responseTime ?? "-"}ms`
-                    : service.traffic,
-
-                connectionInfo:
-                  target.id === "gemma"
-                    ? data.models?.length
-                      ? "모델 있음"
-                      : "모델 없음"
-                    : service.connectionInfo,
+                lastCheckedAt: result.ok ? nowText() : service.lastCheckedAt,
               }
             : service
         )
       );
 
-      addLog(target.name, nextStatus, data.message || "상태 확인 완료");
-      return;
+      addLog(target.name, nextStatus, result.message);
+    } catch {
+      setServices((prev) =>
+        prev.map((service) =>
+          service.id === serviceId ? { ...service, status: "offline" } : service
+        )
+      );
+
+      addLog(target.name, "offline", "상태 확인 실패");
     }
-
-    // ❗ fallback (기존 방식 유지)
-    const url = target.externalUrl || target.internalUrl;
-    const result = await checkUrl(url);
-    const nextStatus: StatusType = result.ok ? "online" : "offline";
-
-    setServices((prev) =>
-      prev.map((service) =>
-        service.id === serviceId
-          ? {
-              ...service,
-              status: nextStatus,
-              lastCheckedAt: result.ok ? nowText() : service.lastCheckedAt,
-            }
-          : service
-      )
-    );
-
-    addLog(target.name, nextStatus, result.message);
-  } catch {
-    setServices((prev) =>
-      prev.map((service) =>
-        service.id === serviceId ? { ...service, status: "offline" } : service
-      )
-    );
-
-    addLog(target.name, "offline", "상태 확인 실패");
   }
-}
 
   useEffect(() => {
-  const timer = window.setInterval(() => {
-    services.forEach((service) => {
-      const hasEndpoint = Boolean(getHealthEndpoint(service));
-      const hasUrl = Boolean(service.internalUrl || service.externalUrl);
+    const timer = window.setInterval(() => {
+      services.forEach((service) => {
+        const hasEndpoint = Boolean(getHealthEndpoint(service));
+        const hasUrl = Boolean(service.internalUrl || service.externalUrl);
 
-      if (hasEndpoint || hasUrl) {
-        void refreshService(service.id);
-      }
-    });
-  }, 30000);
+        if (hasEndpoint || hasUrl) {
+          void refreshService(service.id);
+        }
+      });
+    }, 30000);
 
-  return () => window.clearInterval(timer);
-}, [services]);
+    return () => window.clearInterval(timer);
+  }, [services]);
 
   function updateService(serviceId: string, patch: Partial<ServiceItem>) {
     setServices((prev) =>
@@ -697,7 +692,7 @@ storage: isMacMini
           </div>
         </div>
 
-        {service.kind === "서버&AI" ? (
+        {service.kind === "서버" ? (
           <div className="grid gap-4 md:grid-cols-3">
             <SmallMetric
               icon={<Cpu size={18} />}
@@ -715,6 +710,14 @@ storage: isMacMini
               value={service.storage ?? "-"}
             />
           </div>
+        ) : null}
+
+        {service.kind === "AI" ? (
+          <SmallMetric
+            icon={<Activity size={18} />}
+            label="접속 상태"
+            value={statusLabel(service.status)}
+          />
         ) : null}
 
         {service.kind === "서비스" || service.kind === "미디어" ? (
@@ -963,7 +966,7 @@ storage: isMacMini
                   kind: value as ServiceKind,
                 }))
               }
-              options={["서버&AI", "서비스", "미디어", "기타", "API"].map(
+              options={["서버", "AI", "서비스", "미디어", "기타", "API"].map(
                 (item) => ({
                   value: item,
                   label: item,
@@ -1308,4 +1311,3 @@ function SmallMetric({
     </div>
   );
 }
-
