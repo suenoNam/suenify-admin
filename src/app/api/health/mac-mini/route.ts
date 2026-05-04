@@ -1,7 +1,25 @@
+import { execSync } from "child_process";
 import { NextResponse } from "next/server";
 import os from "os";
 
 export const runtime = "nodejs";
+
+function getStorage() {
+  const output = execSync("df -k /").toString().trim();
+  const lines = output.split("\n");
+  const parts = lines[1].split(/\s+/);
+
+  const totalKb = Number(parts[1]);
+  const usedKb = Number(parts[2]);
+  const availableKb = Number(parts[3]);
+
+  return {
+    totalGB: Math.round(totalKb / 1024 / 1024),
+    usedGB: Math.round(usedKb / 1024 / 1024),
+    freeGB: Math.round(availableKb / 1024 / 1024),
+    usedPercent: Math.round((usedKb / totalKb) * 100),
+  };
+}
 
 export async function GET() {
   try {
@@ -39,6 +57,7 @@ export async function GET() {
         freeGB: Math.round(freeMem / 1024 / 1024 / 1024),
         usedPercent: Math.round((usedMem / totalMem) * 100),
       },
+      storage: getStorage(),
       checkedAt: new Date().toISOString(),
     });
   } catch {
