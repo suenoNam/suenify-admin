@@ -1,221 +1,136 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  House,
-  ExternalLink,
-  Check,
-  CircleAlert,
-  FolderTree,
-  Cpu,
-  MemoryStick,
   Activity,
+  Bot,
+  ChevronDown,
+  ChevronRight,
+  Cpu,
+  ExternalLink,
+  Folder,
+  HardDrive,
+  House,
+  Menu,
+  Pencil,
+  Plus,
+  RefreshCcw,
+  Save,
+  Search,
   Server,
+  Settings,
+  Trash2,
 } from "lucide-react";
 
-import StatusCard from "@/components/dashboard/StatusCard";
-import FloatingPath from "@/components/common/FloatingPath";
-import StatusModal from "@/components/dashboard/StatusModal";
-import AdminSidebar from "@/components/layout/AdminSidebar";
-import AdminTopbar from "@/components/layout/AdminTopbar";
-import NasChecklistPanel from "@/components/settings/NasChecklistPanel";
-import SettingsBackupPanel from "@/components/settings/SettingsBackupPanel";
-import NetworkCheckPanel from "@/components/settings/NetworkCheckPanel";
-import ServiceAddPanel from "@/components/settings/ServiceAddPanel";
-import ServiceDetailHeader from "@/components/service/ServiceDetailHeader";
-import DeleteServiceDialog from "@/components/service/DeleteServiceDialog";
-import ServiceSettingsRenderer from "@/components/settings/ServiceSettingsRenderer";
-import EnvironmentSettingsPanel from "@/components/settings/EnvironmentSettingsPanel";
+import EditableField from "@/app/components/common/EditableField";
+import EditableSelect from "@/app/components/common/EditableSelect";
+import IconActionButton from "@/app/components/common/IconActionButton";
 
-import {
-  getMergedServiceRegistry,
-  getServiceByTitle,
-  canDeleteService,
-  deleteUserService,
+type View =
+  | "home"
+  | "settings-groups"
+  | "settings-services"
+  | "settings-logs"
+  | string;
 
-} from "@/lib/services/registry";
-import InfraSettingsPanel, {
-  getInfraSettings,
-} from "@/components/settings/InfraSettingsPanel";
-import StatusHistoryPanel, {
-  type StatusHistoryItem,
-  loadStatusHistory,
-  saveStatusHistory,
-} from "@/components/settings/StatusHistoryPanel";
-import RecentLogsPanel, {
-  type RecentLogItem,
-  loadRecentLogs,
-  saveRecentLogs,
-} from "@/components/settings/RecentLogsPanel";
-import DashboardSettingsPanel, {
-  getDashboardSectionSettings,
-  type DashboardSectionSettings,
-} from "@/components/settings/DashboardSettingsPanel";
-import AccountSettingsPanel from "@/components/settings/AccountSettingsPanel";
-import { getStatusCards, getRecentLogs } from "@/lib/status/cards";
-import { checkServiceStatus } from "@/lib/status/engine";
-import { getViewConfig } from "@/lib/status/view";
-import { serviceIconMap } from "@/lib/services/iconMap";
+type ServiceKind = "서버&AI" | "서비스" | "미디어" | "기타" | "API";
+type StatusType = "online" | "offline" | "checking" | "unknown";
 
-import type {
-  StatusCardItem,
-  ViewType,
-  StatusType,
-} from "@/lib/status/types";
-
-type ActionState = "idle" | "success" | "error";
-
-type LiveCheckResult = {
-  state: ActionState;
-  responseTime: number | null;
-  checkedAt: string;
+type GroupItem = {
+  id: string;
+  name: string;
+  locked?: boolean;
+  collapsed?: boolean;
+  order: number;
 };
 
-type ServiceCheckOutput = {
-  key: string;
-  title: string;
-  success: boolean;
-  responseTime: number | null;
-  statusCode: number | null;
+type ServiceItem = {
+  id: string;
+  name: string;
+  kind: ServiceKind;
+  internalUrl: string;
+  externalUrl: string;
+  groupId: string;
+  description: string;
+  status: StatusType;
+  lastCheckedAt: string;
+  order: number;
+  cpu?: string;
+  memory?: string;
+  storage?: string;
+  traffic?: string;
+  provider?: string;
+  connectionInfo?: string;
+};
+
+type LogItem = {
+  id: string;
+  serviceName: string;
+  status: StatusType;
   message: string;
-  checkedUrl: string;
+  createdAt: string;
 };
 
-type SystemStatusResponse = {
-  ok: boolean;
-  server: {
-    hostname: string;
-    platform: string;
-    arch: string;
-    uptimeSeconds: number;
-  };
-  memory: {
-    totalGB: number;
-    usedGB: number;
-    freeGB: number;
-    usedPercent: number;
-  };
-  cpu: {
-    cores: number;
-    model: string;
-    loadAverage: number[];
-  };
-  services: {
-    suenifyWeb: {
-      ok: boolean;
-      status: number;
-      responseMs: number | null;
-      url: string;
-    };
-    ollama: {
-      ok: boolean;
-      status: number;
-      responseMs: number | null;
-      url: string;
-    };
-    pm2: {
-      name: string;
-      status: string;
-      restarts: number;
-      memory: number;
-      cpu: number;
-    }[];
-  };
-};
-type DeployHealthResponse = {
-  ok: boolean;
-  service: string;
-  uptimeSeconds: number;
-  lastDeploy: {
-    service: string | null;
-    status: "none" | "running" | "success" | "failed";
-    message: string;
-    startedAt: string | null;
-    finishedAt: string | null;
-  };
-};
-const MAX_DYNAMIC_LOGS = 120;
+const STORAGE_KEY = "suenify-simple-admin-state-v2";
 
-function StatusSlot({ state }: { state: ActionState }) {
-  return (
-    <span className="inline-flex h-5 w-5 items-center justify-center">
-      {state === "success" ? (
-        <Check size={16} className="text-emerald-300" />
-      ) : state === "error" ? (
-        <CircleAlert size={16} className="text-red-300" />
-      ) : null}
-    </span>
-  );
-}
+const defaultGroups: GroupItem[] = [
+  {
+    id: "main",
+    name: "메인",
+    locked: true,
+    collapsed: false,
+    order: 1,
+  },
+];
 
-function StatusBadge({
-  label,
-  type,
-}: {
-  label: string;
-  type: ActionState | StatusType;
-}) {
-  const tone =
-    type === "success" || type === "online"
-      ? "bg-emerald-400/15 text-emerald-300 border-emerald-400/20"
-      : type === "error" || type === "offline"
-      ? "bg-red-400/15 text-red-300 border-red-400/20"
-      : "bg-white/10 text-slate-300 border-white/10";
+const defaultServices: ServiceItem[] = [
+  {
+    id: "mac-mini-server",
+    name: "맥미니 서버",
+    kind: "서버&AI",
+    internalUrl: "",
+    externalUrl: "",
+    groupId: "main",
+    description: "Suenify 기본 서버이자 Gemma 운영 기반 서버입니다.",
+    status: "unknown",
+    lastCheckedAt: "-",
+    order: 1,
+    cpu: "-",
+    memory: "-",
+    storage: "-",
+  },
+  {
+    id: "gemma",
+    name: "젬마",
+    kind: "서버&AI",
+    internalUrl: "",
+    externalUrl: "",
+    groupId: "main",
+    description: "맥미니에서 운영할 로컬 AI 모델 서버입니다.",
+    status: "unknown",
+    lastCheckedAt: "-",
+    order: 2,
+    cpu: "-",
+    memory: "-",
+    storage: "-",
+  },
+  {
+    id: "suenify",
+    name: "suenify",
+    kind: "서비스",
+    internalUrl: "",
+    externalUrl: "",
+    groupId: "main",
+    description: "Suenify 메인 서비스입니다.",
+    status: "unknown",
+    lastCheckedAt: "-",
+    order: 3,
+    traffic: "-",
+  },
+];
 
-  return (
-    <span
-      className={`inline-flex items-center rounded-full border px-3 py-1 text-xs ${tone}`}
-    >
-      {label}
-    </span>
-  );
-}
-
-function IconButton({
-  onClick,
-  title,
-  children,
-  disabled = false,
-}: {
-  onClick?: () => void;
-  title: string;
-  children: React.ReactNode;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      aria-label={title}
-      disabled={disabled}
-      className="inline-flex h-8 w-8 items-center justify-center text-slate-200 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-    >
-      {children}
-    </button>
-  );
-}
-
-function formatCheckedAt(date: Date) {
-  return date
-    .toLocaleString("ko-KR", {
-      hour12: false,
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    })
-    .replace(/\./g, "")
-    .replace(",", "");
-}
-function formatStoredDate(value?: string) {
-  if (!value) return "-";
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-
-  return parsed.toLocaleString("ko-KR", {
+function nowText() {
+  return new Date().toLocaleString("ko-KR", {
     hour12: false,
     month: "2-digit",
     day: "2-digit",
@@ -225,1471 +140,1154 @@ function formatStoredDate(value?: string) {
   });
 }
 
-function getCheckedCardPatch(
-  original: StatusCardItem,
-  liveCheck: LiveCheckResult
-): Partial<StatusCardItem> {
-  if (liveCheck.state === "idle") return {};
+function makeId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
-  if (liveCheck.state === "error") {
+function displayServiceName(name: string) {
+  return name.trim() || "이름 없음";
+}
+
+function getServiceIcon(kind: ServiceKind) {
+  if (kind === "서버&AI") return Server;
+  if (kind === "API") return Activity;
+  if (kind === "미디어") return HardDrive;
+  if (kind === "서비스") return Bot;
+  return Folder;
+}
+
+function statusLabel(status: StatusType) {
+  if (status === "online") return "Online";
+  if (status === "offline") return "Offline";
+  if (status === "checking") return "Checking";
+  return "Unknown";
+}
+
+function statusClass(status: StatusType) {
+  if (status === "online") return "bg-emerald-100 text-emerald-700";
+  if (status === "offline") return "bg-rose-100 text-rose-700";
+  if (status === "checking") return "bg-amber-100 text-amber-700";
+  return "bg-slate-100 text-slate-500";
+}
+
+async function checkUrl(url: string) {
+  if (!url.trim()) {
     return {
-      status: "Error",
-      type: "error" as StatusType,
-      detail: `${original.detail} · 체크 실패`,
-      sub: "실시간 연결 확인 중 오류 발생",
+      ok: false,
+      message: "확인할 주소가 없습니다.",
     };
-  }
-
-  return {
-    status: "Online",
-    type: "online" as StatusType,
-    detail:
-      liveCheck.responseTime !== null
-        ? `${original.detail} · ${liveCheck.responseTime}ms`
-        : original.detail,
-    sub: "실시간 연결 확인 정상",
-  };
-}
-
-function mapTitleToView(title: string): ViewType {
-  const service = getServiceByTitle(title);
-  return (service?.id as ViewType) ?? "dashboard";
-}
-
-function isServiceView(view: ViewType) {
-  return view !== "dashboard" && !view.startsWith("settings");
-}
-
-function buildCardPatch(
-  original: StatusCardItem,
-  result: ServiceCheckOutput
-): StatusCardItem {
-  const checkedAt = formatCheckedAt(new Date());
-  const statusCodeText =
-    result.statusCode !== null ? `HTTP ${result.statusCode}` : "상태코드 없음";
-  const responseText =
-    result.responseTime !== null ? `${result.responseTime}ms` : "시간 측정 없음";
-  const checkedUrl = result.checkedUrl || original.directUrl || "-";
-
-  const serviceMeta = getServiceByTitle(result.title);
-
-  if (!serviceMeta) {
-    return {
-      ...original,
-      status: result.success ? "Online" : "Error",
-      type: result.success ? "online" : "error",
-      detail: result.success ? "상태 확인 완료" : "상태 확인 실패",
-      sub: result.message || "응답 결과 없음",
-      checkedAt,
-      metricA: statusCodeText,
-      metricB: responseText,
-      directUrl: checkedUrl,
-    };
-  }
-
-  if (!serviceMeta.monitoringEnabled) {
-    return {
-      ...original,
-      status: "Ready",
-      type: "warning",
-      detail: serviceMeta.pendingDetail,
-      sub: "아직 실제 체크 미사용",
-      checkedAt,
-      directUrl: checkedUrl,
-    };
-  }
-
-  if (serviceMeta.serviceKind === "nas") {
-    if (result.success) {
-      return {
-        ...original,
-        status: "Online",
-        type: "online",
-        detail: serviceMeta.note || serviceMeta.description,
-        sub: result.message || `${statusCodeText} · ${responseText}`,
-        checkedAt,
-        metricA: statusCodeText,
-        metricB: responseText,
-        directUrl: checkedUrl,
-        accessInfo: "NAS summary API 기준",
-        note: `마지막 확인 주소: ${checkedUrl}`,
-      };
-    }
-
-    return {
-      ...original,
-      status: "Error",
-      type: "error",
-      detail: serviceMeta.note || serviceMeta.description,
-      sub: result.message || "NAS 연결 실패",
-      checkedAt,
-      metricA: statusCodeText,
-      metricB: responseText,
-      directUrl: checkedUrl,
-      accessInfo: "NAS summary API 기준",
-      note: `마지막 확인 주소: ${checkedUrl}`,
-    };
-  }
-
-  if (serviceMeta.serviceKind === "media") {
-    return {
-      ...original,
-      status: result.success ? "Online" : "Error",
-      type: result.success ? "online" : "error",
-      detail: result.success ? "미디어 서비스 연결 정상" : "미디어 서비스 연결 실패",
-      sub: result.success
-        ? `${statusCodeText} · ${responseText}`
-        : result.message || "응답 실패",
-      checkedAt,
-      metricA: statusCodeText,
-      metricB: responseText,
-      directUrl: checkedUrl,
-    };
-  }
-
-  if (serviceMeta.serviceKind === "domain") {
-    return {
-      ...original,
-      status: result.success ? "Online" : "Error",
-      type: result.success ? "online" : "error",
-      detail: result.success ? "도메인 연결 정상" : "도메인 연결 실패",
-      sub: result.success
-        ? `${statusCodeText} · ${responseText}`
-        : result.message || "응답 실패",
-      checkedAt,
-      metricA: statusCodeText,
-      metricB: responseText,
-      directUrl: checkedUrl,
-    };
-  }
-
-  if (serviceMeta.serviceKind === "api") {
-    return {
-      ...original,
-      status: result.success ? "Online" : "Error",
-      type: result.success ? "online" : "error",
-      detail: result.success ? "API 연결 정상" : "API 연결 실패",
-      sub: result.success
-        ? `${statusCodeText} · ${responseText}`
-        : result.message || "응답 실패",
-      checkedAt,
-      metricA: statusCodeText,
-      metricB: responseText,
-      directUrl: checkedUrl,
-    };
-  }
-
-  return {
-    ...original,
-    status: result.success ? "Online" : "Error",
-    type: result.success ? "online" : "error",
-    detail: result.success ? "서비스 연결 정상" : "서비스 연결 실패",
-    sub: result.success
-      ? `${statusCodeText} · ${responseText}`
-      : result.message || "응답 실패",
-    checkedAt,
-    metricA: statusCodeText,
-    metricB: responseText,
-    directUrl: checkedUrl,
-  };
-}
-
-function SimpleRecentLogStream({ items }: { items: RecentLogItem[] }) {
-  const visibleItems = items.slice(0, 20);
-
-  return (
-    <div className="rounded-3xl bg-white/5 p-6">
-      <h3 className="text-lg font-semibold">로그</h3>
-
-      <div className="mt-4 max-h-60 space-y-2 overflow-y-auto text-sm text-slate-300">
-        {visibleItems.length > 0 ? (
-          visibleItems.map((item) => (
-            <p key={item.id} className="leading-6">
-              [{item.createdAt}] {item.message}
-            </p>
-          ))
-        ) : (
-          <p className="text-slate-500">아직 로그가 없습니다.</p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function SystemStatusPanel() {
-  const [systemStatus, setSystemStatus] =
-    useState<SystemStatusResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  async function loadSystemStatus() {
-    try {
-      setLoading(true);
-      const response = await fetch("/api/system/status", {
-        cache: "no-store",
-      });
-      const data = await response.json();
-      setSystemStatus(data);
-    } catch (error) {
-      console.error(error);
-      setSystemStatus(null);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    void loadSystemStatus();
-
-    const interval = window.setInterval(() => {
-      void loadSystemStatus();
-    }, 15000);
-
-    return () => window.clearInterval(interval);
-  }, []);
-
-  const pm2OnlineCount =
-    systemStatus?.services.pm2.filter((item) => item.status === "online")
-      .length ?? 0;
-
-  return (
-    <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
-      <div className="mb-5 flex items-center justify-between">
-        <div>
-          <h3 className="text-xl font-semibold text-white">
-            Mac mini System Status
-          </h3>
-          <p className="mt-1 text-sm text-slate-400">
-            서버, 메모리, CPU, PM2, Ollama 상태를 확인합니다.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={loadSystemStatus}
-          disabled={loading}
-          className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 hover:bg-white/10 disabled:opacity-50"
-        >
-          {loading ? "확인 중" : "새로고침"}
-        </button>
-      </div>
-
-      {!systemStatus ? (
-        <p className="text-sm text-slate-500">
-          시스템 상태를 불러오지 못했습니다.
-        </p>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl bg-black/20 p-4">
-            <div className="mb-3 flex items-center gap-2 text-slate-300">
-              <Activity size={16} />
-              <span className="text-sm font-medium">Server</span>
-            </div>
-            <p className="text-lg font-semibold text-white">
-              {systemStatus.server.hostname}
-            </p>
-            <p className="mt-2 text-sm text-slate-400">
-              {systemStatus.server.platform} · {systemStatus.server.arch}
-            </p>
-          </div>
-
-          <div className="rounded-2xl bg-black/20 p-4">
-            <div className="mb-3 flex items-center gap-2 text-slate-300">
-              <MemoryStick size={16} />
-              <span className="text-sm font-medium">Memory</span>
-            </div>
-            <p className="text-lg font-semibold text-white">
-              {systemStatus.memory.usedPercent}%
-            </p>
-            <p className="mt-2 text-sm text-slate-400">
-              {systemStatus.memory.usedGB}GB / {systemStatus.memory.totalGB}GB
-            </p>
-          </div>
-
-          <div className="rounded-2xl bg-black/20 p-4">
-            <div className="mb-3 flex items-center gap-2 text-slate-300">
-              <Cpu size={16} />
-              <span className="text-sm font-medium">CPU</span>
-            </div>
-            <p className="text-lg font-semibold text-white">
-              {systemStatus.cpu.cores} cores
-            </p>
-            <p className="mt-2 line-clamp-1 text-sm text-slate-400">
-              {systemStatus.cpu.model}
-            </p>
-          </div>
-
-          <div className="rounded-2xl bg-black/20 p-4">
-            <div className="mb-3 flex items-center gap-2 text-slate-300">
-              <Server size={16} />
-              <span className="text-sm font-medium">Services</span>
-            </div>
-            <p className="text-lg font-semibold text-white">
-              PM2 {pm2OnlineCount} online
-            </p>
-            <p className="mt-2 text-sm text-slate-400">
-              Ollama: {systemStatus.services.ollama.ok ? "Online" : "Offline"}
-            </p>
-          </div>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function DeployHealthPanel() {
-  const [deployHealth, setDeployHealth] =
-    useState<DeployHealthResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [deployingTarget, setDeployingTarget] = useState<"admin" | "web" | null>(
-    null
-  );
-
-  async function loadDeployHealth() {
-    try {
-      setLoading(true);
-
-      const response = await fetch("/api/deploy", {
-        cache: "no-store",
-      });
-
-      const data = await response.json();
-      setDeployHealth(data);
-    } catch (error) {
-      console.error(error);
-      setDeployHealth(null);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function runDeploy(target: "admin" | "web") {
-    try {
-      setDeployingTarget(target);
-
-      const response = await fetch("/api/deploy/run", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ target }),
-      });
-
-      const data = await response.json();
-      console.log(data);
-
-      await loadDeployHealth();
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setDeployingTarget(null);
-    }
-  }
-
-  useEffect(() => {
-    void loadDeployHealth();
-
-    const interval = window.setInterval(() => {
-      void loadDeployHealth();
-    }, 15000);
-
-    return () => window.clearInterval(interval);
-  }, []);
-
-  const lastDeploy = deployHealth?.lastDeploy;
-
-  return (
-    <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
-      <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h3 className="text-xl font-semibold text-white">
-            Deploy Server Health
-          </h3>
-          <p className="mt-1 text-sm text-slate-400">
-            자동 배포 서버의 상태와 최근 배포 결과를 확인합니다.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => runDeploy("admin")}
-            disabled={deployingTarget !== null}
-            className="rounded-full bg-blue-500/20 px-4 py-2 text-sm text-blue-300 transition hover:bg-blue-500/30 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {deployingTarget === "admin" ? "Admin 배포 중" : "Admin 배포"}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => runDeploy("web")}
-            disabled={deployingTarget !== null}
-            className="rounded-full bg-purple-500/20 px-4 py-2 text-sm text-purple-300 transition hover:bg-purple-500/30 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {deployingTarget === "web" ? "Web 배포 중" : "Web 배포"}
-          </button>
-
-          <button
-            type="button"
-            onClick={loadDeployHealth}
-            disabled={loading}
-            className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
-          >
-            {loading ? "확인 중" : "새로고침"}
-          </button>
-        </div>
-      </div>
-
-      {!deployHealth ? (
-        <p className="text-sm text-slate-500">
-          배포 서버 상태를 불러오지 못했습니다.
-        </p>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl bg-black/20 p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-              Server
-            </p>
-            <p className="mt-2 text-lg font-semibold text-white">
-              {deployHealth.service}
-            </p>
-            <p className="mt-2 text-sm text-slate-400">
-              uptime {deployHealth.uptimeSeconds}s
-            </p>
-          </div>
-
-          <div className="rounded-2xl bg-black/20 p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-              Last Deploy Service
-            </p>
-            <p className="mt-2 text-lg font-semibold text-white">
-              {lastDeploy?.service ?? "-"}
-            </p>
-            <p className="mt-2 text-sm text-slate-400">최근 배포 대상</p>
-          </div>
-
-          <div className="rounded-2xl bg-black/20 p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-              Last Deploy Status
-            </p>
-            <p className="mt-2 text-lg font-semibold text-white">
-              {lastDeploy?.status ?? "-"}
-            </p>
-            <p className="mt-2 text-sm text-slate-400">
-              {lastDeploy?.message ?? "-"}
-            </p>
-          </div>
-
-          <div className="rounded-2xl bg-black/20 p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-              Finished At
-            </p>
-            <p className="mt-2 text-sm font-semibold text-white">
-              {lastDeploy?.finishedAt
-                ? formatStoredDate(lastDeploy.finishedAt)
-                : "-"}
-            </p>
-            <p className="mt-2 text-sm text-slate-400">
-              마지막 배포 완료 시간
-            </p>
-          </div>
-        </div>
-      )}
-    </section>
-  );
-}
-
-
-export default function Home() {
-  const [allCards, setAllCards] = useState<StatusCardItem[]>([]);
-  const [recentLogs, setRecentLogs] = useState<RecentLogItem[]>([]);
-  const [selectedCard, setSelectedCard] = useState<StatusCardItem | null>(null);
-  const [statusHistory, setStatusHistory] = useState<StatusHistoryItem[]>([]);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [activeView, setActiveView] = useState<ViewType>("dashboard");
-  const [themeMode, setThemeMode] = useState<"dark" | "light">("dark");
-  const [isMounted, setIsMounted] = useState(false);
-  const [dashboardSections, setDashboardSections] =
-  useState<DashboardSectionSettings | null>(null);
-  const [infraSettings, setInfraSettings] =
-  useState<ReturnType<typeof getInfraSettings> | null>(null);
-
-  const [urlActionState, setUrlActionState] = useState<ActionState>("idle");
-  const [checkState, setCheckState] = useState<ActionState>("idle");
-  const [isLogPaused, setIsLogPaused] = useState(false);
-  const [refreshToken, setRefreshToken] = useState(0);
-  const [liveCheck, setLiveCheck] = useState<LiveCheckResult>({
-    state: "idle",
-    responseTime: null,
-    checkedAt: "",
-  });
-
-  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
-  
-
-  const lastAutoStateRef = useRef<Record<string, ActionState>>({});
-  const lastDashboardStateRef = useRef<Record<string, ActionState>>({});
-  const didInitialDashboardCheckRef = useRef(false);
-
-  function refreshDashboardData() {
-  setAllCards(getStatusCards());
-  setDashboardSections(getDashboardSectionSettings());
-  setRefreshToken((prev) => prev + 1);
-}
-
-  useEffect(() => {
-  setIsMounted(true);
-  setDashboardSections(getDashboardSectionSettings());
-  setInfraSettings(getInfraSettings());
-
-  const savedView = window.sessionStorage.getItem("suenify-active-view");
-  const savedTheme = window.localStorage.getItem("suenify-theme-mode");
-
-  if (savedView) {
-    setActiveView(savedView as ViewType);
-  }
-
-  if (savedTheme === "light" || savedTheme === "dark") {
-    setThemeMode(savedTheme);
-  }
-}, []);
-
-useEffect(() => {
-  if (!isMounted) return;
-  window.sessionStorage.setItem("suenify-active-view", activeView);
-}, [activeView, isMounted]);
-
-useEffect(() => {
-  if (!isMounted) return;
-  window.localStorage.setItem("suenify-theme-mode", themeMode);
-}, [themeMode, isMounted]);
-
-  useEffect(() => {
-    refreshDashboardData();
-    setStatusHistory(loadStatusHistory());
-
-    const savedLogs = loadRecentLogs();
-    if (savedLogs.length > 0) {
-      setRecentLogs(savedLogs);
-    } else {
-      const seeded = getRecentLogs().map((message, index) => ({
-        id: `seed-${index}-${Date.now()}`,
-        level: "info" as const,
-        source: "system" as const,
-        message,
-        createdAt: formatCheckedAt(new Date()),
-      }));
-      setRecentLogs(seeded);
-      saveRecentLogs(seeded);
-    }
-  }, []);
-
-  const viewConfig = getViewConfig(activeView);
-
-  function resetStateLater(
-    setter: React.Dispatch<React.SetStateAction<ActionState>>
-  ) {
-    window.setTimeout(() => {
-      setter("idle");
-    }, 1500);
-  }
-
-  function handleGoHome() {
-    setActiveView("dashboard");
-    setIsSidebarOpen(false);
-    setSelectedCard(null);
-  }
-
-  function handleOpenDetailView(title: string) {
-    setActiveView(mapTitleToView(title));
-    setSelectedCard(null);
-    setIsSidebarOpen(false);
-    setUrlActionState("idle");
-    setCheckState("idle");
-    setLiveCheck({
-      state: "idle",
-      responseTime: null,
-      checkedAt: "",
-    });
-  }
-
-  const visibleCardsBase = useMemo(() => {
-    if (activeView === "dashboard") return allCards;
-
-    return allCards.filter((card) => {
-      const service = getServiceByTitle(card.title);
-      return service?.id === activeView;
-    });
-  }, [activeView, allCards, refreshToken]);
-
-  const visibleCards = useMemo(() => {
-    if (activeView === "dashboard") return allCards;
-    if (!isServiceView(activeView)) return [];
-    if (visibleCardsBase.length !== 1) return visibleCardsBase;
-
-    return visibleCardsBase.map((card) => ({
-      ...card,
-      ...getCheckedCardPatch(card, liveCheck),
-    }));
-  }, [activeView, visibleCardsBase, liveCheck, allCards]);
-  
-  const sortedDashboardCards = useMemo(() => {
-  return [...allCards].sort((a, b) => {
-    const aOnline = a.type === "online" ? 0 : 1;
-    const bOnline = b.type === "online" ? 0 : 1;
-
-    if (aOnline !== bOnline) {
-      return aOnline - bOnline;
-    }
-
-    return a.title.localeCompare(b.title, "ko");
-  });
-}, [allCards]);
-
-  const nasUrl =
-    allCards.find((card) => card.title === "NAS Status")?.directUrl ??
-    "http://192.168.0.44";
-
-  const domainUrl =
-    allCards.find((card) => card.title === "Main Domain")?.directUrl ??
-    "https://sueno.myasustor.com";
-
-  const jellyfinUrl =
-    allCards.find((card) => card.title === "Jellyfin")?.directUrl ??
-    "https://sueno.myasustor.com/jellyfin";
-
-  const apiUrl =
-    allCards.find((card) => card.title === "API & Deploy")?.directUrl ??
-    "https://api.suenify.com";
-
-  const currentServiceMeta = useMemo(() => {
-    if (!isServiceView(activeView)) return null;
-    const currentCard = visibleCards[0];
-    if (!currentCard) return null;
-    return getServiceByTitle(currentCard.title);
-  }, [activeView, visibleCards, refreshToken]);
-
-  const settingsServices = useMemo(() => {
-  const filtered = getMergedServiceRegistry().filter(
-    (service) =>
-      service.enabled &&
-      !["nas", "main-domain", "api-deploy"].includes(service.id)
-  );
-
-  return Array.from(
-    new Map(
-      filtered.map((service) => [service.title.trim().toLowerCase(), service])
-    ).values()
-  );
-}, [refreshToken]);
-
-   const genericServiceDetailItems = useMemo(() => {
-  if (!isServiceView(activeView) || activeView === "nas") return [];
-
-  const currentCard = visibleCards[0];
-
-  return [
-    {
-      label: "외부 주소",
-      value: currentServiceMeta?.externalUrl?.trim() || "-",
-    },
-    {
-      label: "내부 주소",
-      value: currentServiceMeta?.internalUrl?.trim() || "-",
-    },
-    {
-  label: "마지막 확인 시간",
-  value: currentServiceMeta?.metadata?.lastCheckedAt
-    ? formatStoredDate(currentServiceMeta.metadata.lastCheckedAt)
-    : currentCard?.checkedAt || liveCheck.checkedAt || "-",
-},
-    {
-      label: "주소",
-      value: currentServiceMeta?.accessInfo?.trim() || "-",
-    },
-    {
-      label: "메모",
-      value: currentServiceMeta?.note?.trim() || "-",
-    },
-  ];
-}, [activeView, currentServiceMeta, liveCheck, visibleCards]);
-
-  function appendLogEntry(item: Omit<RecentLogItem, "id">) {
-    if (isLogPaused) return;
-
-    setRecentLogs((prev) => {
-      const next = [
-        {
-          ...item,
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        },
-        ...prev,
-      ].slice(0, MAX_DYNAMIC_LOGS);
-
-      saveRecentLogs(next);
-      return next;
-    });
-  }
-
-  function appendStatusHistory(item: StatusHistoryItem) {
-    setStatusHistory((prev) => {
-      const next = [item, ...prev].slice(0, 30);
-      saveStatusHistory(next);
-      return next;
-    });
-  }
-
-  function clearStatusHistory() {
-    setStatusHistory([]);
-    saveStatusHistory([]);
-  }
-
-  function clearRecentLogs() {
-    setRecentLogs([]);
-    saveRecentLogs([]);
-  }
-
-  async function runServiceCheck(
-    source: "auto" | "manual" = "auto"
-  ): Promise<void> {
-    if (!isServiceView(activeView)) return;
-    if (visibleCardsBase.length !== 1) return;
-
-    const currentCard = visibleCardsBase[0];
-    const serviceMeta = getServiceByTitle(currentCard.title);
-
-    if (!serviceMeta?.monitoringEnabled) {
-      const checkedAt = formatCheckedAt(new Date());
-
-      setCheckState("idle");
-      setLiveCheck({
-        state: "idle",
-        responseTime: null,
-        checkedAt,
-      });
-
-      if (source === "manual") {
-        appendLogEntry({
-          level: "info",
-          source: "manual",
-          message: `${currentCard.title} 서비스는 아직 체크 대상이 아닙니다.`,
-          createdAt: checkedAt,
-        });
-      }
-
-      return;
-    }
-
-    const url = currentCard?.directUrl?.trim();
-    const checkedAt = formatCheckedAt(new Date());
-    const serviceName = currentCard.title;
-
-    if (!url) {
-      setCheckState("error");
-      setLiveCheck({
-        state: "error",
-        responseTime: null,
-        checkedAt,
-      });
-
-      if (source === "manual") {
-        appendLogEntry({
-          level: "error",
-          source: "manual",
-          message: `${serviceName} manual check failed: URL missing`,
-          createdAt: checkedAt,
-        });
-      }
-
-      return;
-    }
-
-    try {
-      const service = getServiceByTitle(currentCard.title);
-      if (!service) return;
-
-      const result = await checkServiceStatus(service);
-      const nextState: ActionState = result.success ? "success" : "error";
-
-      setCheckState(nextState);
-      setLiveCheck({
-        state: nextState,
-        responseTime: result.success ? result.responseTime : null,
-        checkedAt,
-      });
-      resetStateLater(setCheckState);
-
-      if (source === "manual") {
-        appendLogEntry({
-          level: result.success ? "success" : "error",
-          source: "manual",
-          message: result.success
-            ? `${serviceName} manual check success · ${result.responseTime}ms`
-            : `${serviceName} manual check failed · ${result.message}`,
-          createdAt: checkedAt,
-        });
-      } else {
-        const previousState = lastAutoStateRef.current[serviceName];
-
-        if (previousState !== nextState) {
-          if (nextState === "success") {
-            const message = `${serviceName} auto recovery detected · ${result.responseTime}ms`;
-
-            appendLogEntry({
-              level: "success",
-              source: "auto",
-              message,
-              createdAt: checkedAt,
-            });
-
-            appendStatusHistory({
-              service: serviceName,
-              state: "success",
-              source: "auto",
-              message,
-              checkedAt,
-            });
-          } else {
-            const message = `${serviceName} auto failure detected`;
-
-            appendLogEntry({
-              level: "error",
-              source: "auto",
-              message,
-              createdAt: checkedAt,
-            });
-
-            appendStatusHistory({
-              service: serviceName,
-              state: "error",
-              source: "auto",
-              message,
-              checkedAt,
-            });
-          }
-        }
-
-        lastAutoStateRef.current[serviceName] = nextState;
-      }
-    } catch (error) {
-      console.error(error);
-      setCheckState("error");
-      setLiveCheck({
-        state: "error",
-        responseTime: null,
-        checkedAt,
-      });
-      resetStateLater(setCheckState);
-
-      if (source === "manual") {
-        appendLogEntry({
-          level: "error",
-          source: "manual",
-          message: `${serviceName} manual check error occurred`,
-          createdAt: checkedAt,
-        });
-      } else {
-        const previousState = lastAutoStateRef.current[serviceName];
-        if (previousState !== "error") {
-          const message = `${serviceName} auto error occurred`;
-
-          appendLogEntry({
-            level: "error",
-            source: "auto",
-            message,
-            createdAt: checkedAt,
-          });
-
-          appendStatusHistory({
-            service: serviceName,
-            state: "error",
-            source: "auto",
-            message,
-            checkedAt,
-          });
-        }
-        lastAutoStateRef.current[serviceName] = "error";
-      }
-    }
-  }
-
-  async function refreshDashboardCards() {
-    if (allCards.length === 0) return;
-
-    const checkedAt = formatCheckedAt(new Date());
-
-    const serviceTargets = getMergedServiceRegistry()
-      .filter((service) => service.enabled && service.monitoringEnabled)
-      .map((service) => ({
-        key: service.id,
-        title: service.title,
-        run: () => checkServiceStatus(service),
-      }));
-
-    const results = await Promise.all(
-      serviceTargets.map(async (target) => {
-        try {
-          const result = await target.run();
-          return {
-            key: target.key,
-            title: target.title,
-            success: result.success,
-            responseTime: result.responseTime,
-            statusCode: result.statusCode ?? null,
-            message: result.message,
-            checkedUrl: result.checkedUrl ?? "",
-          } satisfies ServiceCheckOutput;
-        } catch (error) {
-          console.error(error);
-          return {
-            key: target.key,
-            title: target.title,
-            success: false,
-            responseTime: null,
-            statusCode: null,
-            message: "실제 연결 확인 중 오류가 발생했습니다.",
-            checkedUrl: "",
-          } satisfies ServiceCheckOutput;
-        }
-      })
-    );
-
-    setAllCards((prev) =>
-      prev.map((card) => {
-        const matched = results.find((result) => result.title === card.title);
-        if (!matched) return card;
-        return buildCardPatch(card, matched);
-      })
-    );
-
-    for (const result of results) {
-      const nextState: ActionState = result.success ? "success" : "error";
-      const previousState = lastDashboardStateRef.current[result.title];
-
-      if (!didInitialDashboardCheckRef.current || previousState !== nextState) {
-        if (result.success) {
-          appendLogEntry({
-            level: "success",
-            source: "auto",
-            message: `${result.title} 홈 카드 상태 확인 성공${
-              result.responseTime !== null ? ` · ${result.responseTime}ms` : ""
-            }`,
-            createdAt: checkedAt,
-          });
-
-          appendStatusHistory({
-            service: result.title,
-            state: "success",
-            source: "auto",
-            message: `${result.title} 홈 카드 상태가 정상으로 확인되었습니다.`,
-            checkedAt,
-          });
-        } else {
-          appendLogEntry({
-            level: "error",
-            source: "auto",
-            message: `${result.title} 홈 카드 상태 확인 실패 · ${result.message}`,
-            createdAt: checkedAt,
-          });
-
-          appendStatusHistory({
-            service: result.title,
-            state: "error",
-            source: "auto",
-            message: `${result.title} 홈 카드 상태가 오류로 감지되었습니다.`,
-            checkedAt,
-          });
-        }
-      }
-
-      lastDashboardStateRef.current[result.title] = nextState;
-    }
-
-    didInitialDashboardCheckRef.current = true;
-  }
-
-  useEffect(() => {
-    setLiveCheck({
-      state: "idle",
-      responseTime: null,
-      checkedAt: "",
-    });
-
-    if (!isServiceView(activeView)) return;
-    if (visibleCardsBase.length !== 1) return;
-
-    void runServiceCheck("auto");
-
-    const interval = window.setInterval(() => {
-      void runServiceCheck("auto");
-    }, 5000);
-
-    return () => window.clearInterval(interval);
-  }, [activeView, visibleCardsBase]);
-
-  useEffect(() => {
-    if (allCards.length === 0) return;
-    if (activeView !== "dashboard") return;
-
-    void refreshDashboardCards();
-
-    const interval = window.setInterval(() => {
-      void refreshDashboardCards();
-    }, 15000);
-
-    return () => window.clearInterval(interval);
-  }, [allCards.length, activeView]);
-
-
-  function handleOpenUrl() {
-  if (visibleCards.length !== 1) {
-    setUrlActionState("error");
-    resetStateLater(setUrlActionState);
-    return;
-  }
-
-  const currentCard = visibleCards[0];
-  const currentService = getServiceByTitle(currentCard.title);
-
-  const targetUrl =
-    activeView === "nas"
-      ? currentService?.externalUrl?.trim() || ""
-      : currentCard?.directUrl?.trim() || "";
-
-  if (!targetUrl) {
-    setUrlActionState("error");
-    resetStateLater(setUrlActionState);
-    return;
   }
 
   try {
-    window.open(targetUrl, "_blank", "noopener,noreferrer");
-    setUrlActionState("success");
-    resetStateLater(setUrlActionState);
-  } catch (error) {
-    console.error(error);
-    setUrlActionState("error");
-    resetStateLater(setUrlActionState);
+    const response = await fetch("/api/internal/check-url", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ url }),
+      cache: "no-store",
+    });
+
+    const data = await response.json();
+
+    return {
+      ok: Boolean(data.success),
+      message: data.message || "상태 확인 완료",
+    };
+  } catch {
+    return {
+      ok: false,
+      message: "접속 확인에 실패했습니다.",
+    };
+  }
+}
+const HEALTH_ENDPOINTS: Record<string, string> = {
+  "mac-mini-server": "/api/health/mac-mini",
+  gemma: "/api/health/ollama",
+  suenify: "/api/health/suenify",
+  nas: "/api/health/nas",
+};
+function getHealthEndpoint(service: ServiceItem) {
+  // Mac mini
+  if (
+    service.id === "mac-mini-server" ||
+    service.name.includes("맥미니")
+  ) {
+    return "/api/health/mac-mini";
+  }
+
+  // NAS 🔥 추가
+  if (service.name.toLowerCase().includes("nas")) {
+    return "/api/health/nas";
+  }
+
+  // Gemma
+  if (service.name.toLowerCase().includes("gemma")) {
+    return "/api/health/ollama";
+  }
+
+  return HEALTH_ENDPOINTS[service.id];
+}
+
+export default function Home() {
+  const [mounted, setMounted] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activeView, setActiveView] = useState<View>("home");
+  const [groups, setGroups] = useState<GroupItem[]>(defaultGroups);
+  const [services, setServices] = useState<ServiceItem[]>(defaultServices);
+  const [logs, setLogs] = useState<LogItem[]>([]);
+  const [searchText, setSearchText] = useState("");
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
+  const [newGroupName, setNewGroupName] = useState("");
+
+  const [newService, setNewService] = useState<
+    Omit<ServiceItem, "id" | "status" | "lastCheckedAt" | "order">
+  >({
+    name: "",
+    kind: "서비스",
+    internalUrl: "",
+    externalUrl: "",
+    groupId: "main",
+    description: "",
+  });
+
+  useEffect(() => {
+    setMounted(true);
+
+    const saved = window.localStorage.getItem(STORAGE_KEY);
+    if (!saved) return;
+
+    try {
+      const parsed = JSON.parse(saved);
+      setGroups(parsed.groups?.length ? parsed.groups : defaultGroups);
+      setServices(parsed.services?.length ? parsed.services : defaultServices);
+      setLogs(parsed.logs ?? []);
+    } catch {
+      setGroups(defaultGroups);
+      setServices(defaultServices);
+      setLogs([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        groups,
+        services,
+        logs,
+      })
+    );
+  }, [mounted, groups, services, logs]);
+
+  const activeService =
+    services.find((service) => service.id === activeView) ?? null;
+
+  const activeGroup = activeService
+    ? groups.find((group) => group.id === activeService.groupId)
+    : null;
+
+  const sortedGroups = useMemo(() => {
+    return [...groups].sort((a, b) => a.order - b.order);
+  }, [groups]);
+
+  const sortedServices = useMemo(() => {
+    return [...services].sort((a, b) =>
+      displayServiceName(a.name).localeCompare(displayServiceName(b.name), "ko")
+    );
+  }, [services]);
+
+  const searchResults = useMemo(() => {
+    const keyword = searchText.trim().toLowerCase();
+    if (!keyword) return [];
+
+    const serviceResults = services
+      .filter((service) =>
+        displayServiceName(service.name).toLowerCase().includes(keyword)
+      )
+      .map((service) => ({
+        id: service.id,
+        label: displayServiceName(service.name),
+        sub: "서비스",
+      }));
+
+    const settingResults = [
+      { id: "settings-groups", label: "그룹", sub: "설정" },
+      { id: "settings-services", label: "서비스 등록", sub: "설정" },
+      { id: "settings-logs", label: "로그", sub: "설정" },
+    ].filter((item) => item.label.toLowerCase().includes(keyword));
+
+    return [...serviceResults, ...settingResults].slice(0, 8);
+  }, [searchText, services]);
+
+  function addLog(serviceName: string, status: StatusType, message: string) {
+    setLogs((prev) =>
+      [
+        {
+          id: makeId("log"),
+          serviceName: displayServiceName(serviceName),
+          status,
+          message,
+          createdAt: nowText(),
+        },
+        ...prev,
+      ].slice(0, 120)
+    );
+  }
+
+  async function refreshService(serviceId: string) {
+  const target = services.find((service) => service.id === serviceId);
+  if (!target) return;
+
+  // 상태: 확인중
+  setServices((prev) =>
+    prev.map((service) =>
+      service.id === serviceId ? { ...service, status: "checking" } : service
+    )
+  );
+
+  const endpoint = getHealthEndpoint(target);
+
+const isMacMini =
+  target.id === "mac-mini-server" ||
+  target.id === "mac-mini" ||
+  target.name.includes("맥미니");
+
+  try {
+    // ✅ API 있는 서비스
+    if (endpoint) {
+      const res = await fetch(endpoint, { cache: "no-store" });
+      const data = await res.json();
+
+      const nextStatus: StatusType =
+  data && (data.ok === true || data.service) ? "online" : "offline";
+
+      setServices((prev) =>
+        prev.map((service) =>
+          service.id === serviceId
+            ? {
+                ...service,
+                status: nextStatus,
+                lastCheckedAt: data.ok ? nowText() : service.lastCheckedAt,
+
+                // 🔥 서비스별 데이터 연결
+               cpu:
+  isMacMini || target.name.toLowerCase().includes("nas")
+    ? data.cpu?.usage ?? service.cpu
+    : service.cpu,
+
+memory: isMacMini
+  ? `${data.memory?.usedGB ?? "-"}GB / ${data.memory?.totalGB ?? "-"}GB (${
+      data.memory?.usedPercent ?? "-"
+    }%)`
+  : target.name.toLowerCase().includes("nas")
+  ? `${data.memory?.usedMB ?? "-"}MB / ${data.memory?.totalMB ?? "-"}MB (${
+      data.memory?.usedPercent ?? "-"
+    }%)`
+  : service.memory,
+
+storage:
+  target.name.toLowerCase().includes("nas")
+    ? `${data.storage?.usedGB ?? "-"}GB / ${data.storage?.totalTB ?? "-"}TB (${
+        data.storage?.usedPercent ?? "-"
+      }%)`
+    : service.storage,
+
+                traffic:
+                  target.id === "suenify"
+                    ? `${data.responseTime ?? "-"}ms`
+                    : service.traffic,
+
+                connectionInfo:
+                  target.id === "gemma"
+                    ? data.models?.length
+                      ? "모델 있음"
+                      : "모델 없음"
+                    : service.connectionInfo,
+              }
+            : service
+        )
+      );
+
+      addLog(target.name, nextStatus, data.message || "상태 확인 완료");
+      return;
+    }
+
+    // ❗ fallback (기존 방식 유지)
+    const url = target.externalUrl || target.internalUrl;
+    const result = await checkUrl(url);
+    const nextStatus: StatusType = result.ok ? "online" : "offline";
+
+    setServices((prev) =>
+      prev.map((service) =>
+        service.id === serviceId
+          ? {
+              ...service,
+              status: nextStatus,
+              lastCheckedAt: result.ok ? nowText() : service.lastCheckedAt,
+            }
+          : service
+      )
+    );
+
+    addLog(target.name, nextStatus, result.message);
+  } catch {
+    setServices((prev) =>
+      prev.map((service) =>
+        service.id === serviceId ? { ...service, status: "offline" } : service
+      )
+    );
+
+    addLog(target.name, "offline", "상태 확인 실패");
   }
 }
 
-  async function handleManualCheck() {
-    await runServiceCheck("manual");
+  useEffect(() => {
+  const timer = window.setInterval(() => {
+    services.forEach((service) => {
+      const hasEndpoint = Boolean(getHealthEndpoint(service));
+      const hasUrl = Boolean(service.internalUrl || service.externalUrl);
+
+      if (hasEndpoint || hasUrl) {
+        void refreshService(service.id);
+      }
+    });
+  }, 30000);
+
+  return () => window.clearInterval(timer);
+}, [services]);
+
+  function updateService(serviceId: string, patch: Partial<ServiceItem>) {
+    setServices((prev) =>
+      prev.map((service) =>
+        service.id === serviceId ? { ...service, ...patch } : service
+      )
+    );
   }
 
-  function handleRefreshLogs() {
-    appendLogEntry({
-      level: "info",
-      source: "system",
-      message: "Log panel refreshed manually",
-      createdAt: formatCheckedAt(new Date()),
+  function addGroup() {
+    const name = newGroupName.trim();
+    if (!name) return;
+
+    setGroups((prev) => [
+      ...prev,
+      {
+        id: makeId("group"),
+        name,
+        collapsed: false,
+        order: prev.length + 1,
+      },
+    ]);
+
+    setNewGroupName("");
+  }
+
+  function deleteGroup(groupId: string) {
+    const group = groups.find((item) => item.id === groupId);
+    if (!group || group.locked) return;
+
+    setServices((prev) =>
+      prev.map((service) =>
+        service.groupId === groupId ? { ...service, groupId: "main" } : service
+      )
+    );
+
+    setGroups((prev) => prev.filter((item) => item.id !== groupId));
+  }
+
+  function addService() {
+    if (!newService.name.trim()) return;
+
+    setServices((prev) => [
+      ...prev,
+      {
+        ...newService,
+        id: makeId("service"),
+        name: newService.name.trim(),
+        status: "unknown",
+        lastCheckedAt: "-",
+        order: prev.length + 1,
+      },
+    ]);
+
+    setNewService({
+      name: "",
+      kind: "서비스",
+      internalUrl: "",
+      externalUrl: "",
+      groupId: "main",
+      description: "",
     });
   }
 
-  function getViewIcon(view: ViewType) {
-    const title =
-      view === "nas"
-        ? "NAS Status"
-        : view === "jellyfin"
-        ? "Jellyfin"
-        : view === "main-domain"
-        ? "Main Domain"
-        : view === "api-deploy"
-        ? "API & Deploy"
-        : "";
-
-    const serviceMeta = getServiceByTitle(title);
-
-    if (serviceMeta) {
-      const Icon = serviceIconMap[serviceMeta.icon];
-      if (Icon) {
-        return <Icon size={18} />;
-      }
-    }
-
-    return <House size={18} />;
+  function deleteService(serviceId: string) {
+    setServices((prev) => prev.filter((service) => service.id !== serviceId));
+    if (activeView === serviceId) setActiveView("home");
   }
 
-  function getCurrentStateLabel() {
-    if (liveCheck.state === "success") return "Online";
-    if (liveCheck.state === "error") return "Error";
-    return visibleCards[0]?.status ?? "Unknown";
+  function SidebarButton({
+    icon,
+    label,
+    active,
+    onClick,
+  }: {
+    icon: React.ReactNode;
+    label: string;
+    active?: boolean;
+    onClick: () => void;
+  }) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-base transition ${
+          active
+            ? "bg-white text-sky-700 shadow-sm"
+            : "text-slate-700 hover:bg-white/70"
+        }`}
+      >
+        <span className="shrink-0">{icon}</span>
+        {sidebarOpen ? <span className="truncate">{label}</span> : null}
+      </button>
+    );
   }
 
-  function getCurrentStateType(): ActionState | StatusType {
-    if (liveCheck.state !== "idle") return liveCheck.state;
-    return visibleCards[0]?.type ?? "warning";
-  }
+  function renderHome() {
+    return (
+      <section>
+        <HeaderTitle
+          title="메인"
+          description="등록된 서비스를 가나다 / ABC 순으로 표시합니다."
+        />
 
-  function handleDeleteCustomService() {
-    if (!currentServiceMeta) return;
-    if (!canDeleteService(currentServiceMeta.id)) return;
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {sortedServices.map((service) => {
+            const Icon = getServiceIcon(service.kind);
+            const url = service.externalUrl || service.internalUrl;
 
-    try {
-      deleteUserService(currentServiceMeta.id);
-      refreshDashboardData();
-      setIsDeleteConfirmOpen(false);
-      setActiveView("dashboard");
-    } catch (error) {
-      console.error(error);
-      setIsDeleteConfirmOpen(false);
-    }
-  }
-
-  return (
-    <>
-      <main
-  className={`min-h-screen ${
-    themeMode === "dark" ? "dark bg-slate-950" : "bg-slate-100"
-  }`}
->
-        <div className="px-6 py-3">
-          <div className="mx-auto max-w-7xl">
-            <div className="flex h-10 items-center justify-between">
-              <button
-                type="button"
-                onClick={() => setIsSidebarOpen(true)}
-                className="rounded-xl bg-white/5 px-4 py-2 text-sm hover:bg-white/10"
-                style={{
-                  visibility: isSidebarOpen ? "hidden" : "visible",
-                }}
+            return (
+              <article
+                key={service.id}
+                className="rounded-3xl border border-sky-100 bg-white/80 p-5 shadow-sm"
               >
-                Menu
-              </button>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-100 text-sky-700">
+                      <Icon size={20} />
+                    </div>
+                    <p className="min-h-[28px] truncate text-lg font-semibold text-slate-800">
+                      {displayServiceName(service.name)}
+                    </p>
+                  </div>
 
-              <button
-                type="button"
-                onClick={handleGoHome}
-                className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/5 hover:bg-white/10"
-                title="Home"
-                aria-label="Home"
+                  <span
+                    className={`shrink-0 rounded-full px-3 py-1.5 text-sm font-medium ${statusClass(
+                      service.status
+                    )}`}
+                  >
+                    {statusLabel(service.status)}
+                  </span>
+                </div>
+
+                <p className="mt-5 text-base text-slate-500">
+                  마지막 확인시간: {service.lastCheckedAt}
+                </p>
+
+                <div className="mt-5 flex items-center justify-between gap-2">
+                  <IconActionButton
+                    title="링크 바로가기"
+                    disabled={!url}
+                    onClick={() =>
+                      url && window.open(url, "_blank", "noopener,noreferrer")
+                    }
+                  >
+                    <ExternalLink size={19} />
+                  </IconActionButton>
+
+                  <IconActionButton
+                    title="상세페이지"
+                    onClick={() => setActiveView(service.id)}
+                  >
+                    <ChevronRight size={19} />
+                  </IconActionButton>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+    );
+  }
+
+  function renderServiceDetail(service: ServiceItem) {
+    const Icon = getServiceIcon(service.kind);
+    const isEditing = editingServiceId === service.id;
+    const url = service.externalUrl || service.internalUrl;
+
+    return (
+      <section className="space-y-5">
+        <div className="rounded-3xl border border-sky-100 bg-white/85 p-6 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-100 text-sky-700">
+                <Icon size={23} />
+              </div>
+              <div className="min-w-0">
+                <h2 className="min-h-[32px] truncate text-2xl font-semibold text-slate-800">
+                  {displayServiceName(service.name)}
+                </h2>
+                <p className="text-base text-slate-500">{service.kind}</p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`rounded-full px-3 py-1.5 text-sm font-medium ${statusClass(
+                  service.status
+                )}`}
               >
-                <House size={16} />
-              </button>
+                {statusLabel(service.status)}
+              </span>
+
+              <IconActionButton
+                title="링크 바로가기"
+                disabled={!url}
+                onClick={() =>
+                  url && window.open(url, "_blank", "noopener,noreferrer")
+                }
+              >
+                <ExternalLink size={19} />
+              </IconActionButton>
+
+              <IconActionButton
+                title="새로고침"
+                onClick={() => refreshService(service.id)}
+              >
+                <RefreshCcw size={19} />
+              </IconActionButton>
+
+              <IconActionButton
+                title={isEditing ? "수정 종료" : "수정"}
+                onClick={() => setEditingServiceId(isEditing ? null : service.id)}
+              >
+                {isEditing ? <Save size={19} /> : <Pencil size={19} />}
+              </IconActionButton>
             </div>
           </div>
         </div>
 
-        {isSidebarOpen ? (
-          <div
-            className="fixed inset-0 z-9995 bg-black/40"
-            onClick={() => setIsSidebarOpen(false)}
+        {service.kind === "서버&AI" ? (
+          <div className="grid gap-4 md:grid-cols-3">
+            <SmallMetric
+              icon={<Cpu size={18} />}
+              label="CPU"
+              value={service.cpu ?? "-"}
+            />
+            <SmallMetric
+              icon={<Activity size={18} />}
+              label="메모리"
+              value={service.memory ?? "-"}
+            />
+            <SmallMetric
+              icon={<HardDrive size={18} />}
+              label="저장공간"
+              value={service.storage ?? "-"}
+            />
+          </div>
+        ) : null}
+
+        {service.kind === "서비스" || service.kind === "미디어" ? (
+          <SmallMetric
+            icon={<Activity size={18} />}
+            label="트래픽"
+            value={service.traffic ?? "-"}
           />
         ) : null}
 
-        <AdminSidebar
-
-  isOpen={isSidebarOpen}
-  activeView={activeView}
-  refreshToken={refreshToken}
-  statusCards={allCards}
-  onSelectView={(view: ViewType) => {
-            setActiveView(view);
-            setIsSidebarOpen(false);
-            setUrlActionState("idle");
-            setCheckState("idle");
-            setLiveCheck({
-              state: "idle",
-              responseTime: null,
-              checkedAt: "",
-            });
-          }}
-        />
-
-        <section className="px-6 pb-6">
-          <div className="mx-auto max-w-7xl">
-            {activeView === "dashboard" ? <AdminTopbar /> : null}
-
-            {activeView === "dashboard" ? (
-  <>
-
-
-    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-      {sortedDashboardCards.map((card) => (
-        <StatusCard
-  id={card.id}
-  key={card.title}
-  title={card.title}
-  status={card.status}
-  detail={card.detail}
-  sub={card.sub}
-  type={card.type}
-  note={card.note}
-  checkedAt={card.checkedAt}
-  directUrl={card.directUrl}
-  onClick={() => setSelectedCard(card)}
-/>
-      ))}
-    </section>
-
-    {isMounted && dashboardSections && infraSettings ? (
-      <section className="mt-6 space-y-6">
-
-        {dashboardSections.statusHistory ? (
-          <StatusHistoryPanel
-            items={statusHistory}
-            onClear={clearStatusHistory}
-          />
+        {service.kind === "API" ? (
+          <div className="grid gap-4 md:grid-cols-2">
+            <SmallMetric
+              icon={<Activity size={18} />}
+              label="연결 정보"
+              value={service.connectionInfo ?? "-"}
+            />
+            <SmallMetric
+              icon={<Server size={18} />}
+              label="서비스 제공자"
+              value={service.provider ?? "-"}
+            />
+          </div>
         ) : null}
 
-        {dashboardSections.recentLogs ? (
-          <RecentLogsPanel
-            items={recentLogs}
-            isPaused={isLogPaused}
-            onTogglePause={() => setIsLogPaused((prev) => !prev)}
-            onRefresh={handleRefreshLogs}
-            onClear={clearRecentLogs}
-          />
-        ) : null}
+        <div className="rounded-3xl border border-sky-100 bg-white/85 p-6 shadow-sm">
+          <div className="grid gap-5 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <EditableField
+                label="서비스 이름"
+                value={service.name}
+                placeholder="이름 없음"
+                disabled={!isEditing}
+                onChange={(value) => updateService(service.id, { name: value })}
+              />
+            </div>
 
-        {dashboardSections.settingsBackup ? (
-          <SettingsBackupPanel onApplied={refreshDashboardData} />
-        ) : null}
+            <EditableField
+              label="마지막 접속 상태"
+              value={service.lastCheckedAt}
+              disabled
+              onChange={() => {}}
+            />
+
+            <EditableSelect
+              label="그룹"
+              value={service.groupId}
+              disabled={!isEditing}
+              onChange={(value) => updateService(service.id, { groupId: value })}
+              options={groups.map((group) => ({
+                value: group.id,
+                label: group.name,
+              }))}
+            />
+
+            <EditableField
+              label="내부 주소"
+              value={service.internalUrl}
+              disabled={!isEditing}
+              onChange={(value) =>
+                updateService(service.id, { internalUrl: value })
+              }
+            />
+
+            <EditableField
+              label="외부 주소"
+              value={service.externalUrl}
+              disabled={!isEditing}
+              onChange={(value) =>
+                updateService(service.id, { externalUrl: value })
+              }
+            />
+
+            <div className="md:col-span-2">
+              <EditableField
+                label="서비스 설명"
+                value={service.description}
+                disabled={!isEditing}
+                onChange={(value) =>
+                  updateService(service.id, { description: value })
+                }
+                textarea
+              />
+            </div>
+          </div>
+        </div>
       </section>
-    ) : null}
-  </>
-) : null}
+    );
+  }
 
-{isServiceView(activeView) ? (
-  <section className="space-y-6">
-    <ServiceDetailHeader
-      title={viewConfig.title}
-      icon={getViewIcon(activeView)}
-      stateLabel={getCurrentStateLabel()}
-      stateType={getCurrentStateType()}
-      actionState={checkState !== "idle" ? checkState : urlActionState}
-      canDelete={canDeleteService(currentServiceMeta?.id ?? "")}
-      onOpen={handleOpenUrl}
-      onCheck={handleManualCheck}
-      onDelete={() => setIsDeleteConfirmOpen(true)}
-    />
-    {activeView === "mac-mini" ? <SystemStatusPanel /> : null}
-
-    {activeView === "deploy-server" ? <DeployHealthPanel /> : null}
-
-    {activeView === "nas" ? (
-      <>
-        <NasChecklistPanel
-          recentLogs={recentLogs}
-          onOpenService={(serviceId) => {
-            setActiveView(serviceId as ViewType);
-            setUrlActionState("idle");
-            setCheckState("idle");
-            setLiveCheck({
-              state: "idle",
-              responseTime: null,
-              checkedAt: "",
-            });
-          }}
+  function renderGroupsSettings() {
+    return (
+      <section className="space-y-5">
+        <HeaderTitle
+          title="그룹"
+          description="그룹 생성, 순서, 펼치기/접기, 서비스 이동을 관리합니다."
         />
 
-        <ServiceSettingsRenderer
-  serviceId={activeView}
-  onSaved={refreshDashboardData}
-  titleOverride="수정 정보"
-  descriptionOverride="외부 주소, 내부 주소, 메모를 수정합니다."
-/>
-      </>
-    ) : (
-      <>
-        <div className="rounded-3xl bg-white/5 p-6">
-          <div className="grid gap-3 md:grid-cols-2">
-            {genericServiceDetailItems.map((item) => (
+        <div className="rounded-3xl border border-sky-100 bg-white/85 p-6 shadow-sm">
+          <div className="flex gap-3">
+            <input
+              value={newGroupName}
+              onChange={(event) => setNewGroupName(event.target.value)}
+              placeholder="새 그룹 이름"
+              className="h-12 flex-1 rounded-2xl border border-sky-200 bg-white px-4 text-base text-slate-800 outline-none"
+            />
+            <button
+              onClick={addGroup}
+              className="rounded-2xl bg-sky-500 px-5 py-2 text-base font-medium text-white hover:bg-sky-600"
+            >
+              생성
+            </button>
+          </div>
+        </div>
+
+        {sortedGroups.map((group, index) => (
+          <div
+            key={group.id}
+            className="rounded-3xl border border-sky-100 bg-white/85 p-6 shadow-sm"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <Folder size={19} className="text-sky-700" />
+                <input
+                  value={group.name}
+                  disabled={group.locked}
+                  onChange={(event) =>
+                    setGroups((prev) =>
+                      prev.map((item) =>
+                        item.id === group.id
+                          ? { ...item, name: event.target.value }
+                          : item
+                      )
+                    )
+                  }
+                  className="rounded-xl bg-transparent px-2 py-1 text-lg font-medium text-slate-800 outline-none disabled:text-slate-500"
+                />
+                {group.locked ? (
+                  <span className="rounded-full bg-sky-100 px-3 py-1 text-sm text-sky-700">
+                    기본 그룹
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={index === 0}
+                  onClick={() =>
+                    setGroups((prev) =>
+                      prev.map((item) =>
+                        item.id === group.id
+                          ? { ...item, order: item.order - 1.5 }
+                          : item
+                      )
+                    )
+                  }
+                  className="rounded-xl px-3 py-2 text-base text-slate-600 hover:bg-sky-50 disabled:opacity-30"
+                >
+                  위
+                </button>
+                <button
+                  onClick={() =>
+                    setGroups((prev) =>
+                      prev.map((item) =>
+                        item.id === group.id
+                          ? { ...item, collapsed: !item.collapsed }
+                          : item
+                      )
+                    )
+                  }
+                  className="rounded-xl px-3 py-2 text-base text-slate-600 hover:bg-sky-50"
+                >
+                  {group.collapsed ? "펼치기" : "접기"}
+                </button>
+                <button
+                  disabled={group.locked}
+                  onClick={() => deleteGroup(group.id)}
+                  className="rounded-xl px-3 py-2 text-base text-rose-500 hover:bg-rose-50 disabled:opacity-30"
+                >
+                  삭제
+                </button>
+              </div>
+            </div>
+
+            {!group.collapsed ? (
+              <div className="mt-5 space-y-2">
+                {services
+                  .filter((service) => service.groupId === group.id)
+                  .sort((a, b) => a.order - b.order)
+                  .map((service) => (
+                    <div
+                      key={service.id}
+                      className="flex items-center justify-between rounded-2xl bg-sky-50 px-4 py-3"
+                    >
+                      <span className="text-base text-slate-700">
+                        {displayServiceName(service.name)}
+                      </span>
+                      <select
+                        value={service.groupId}
+                        onChange={(event) =>
+                          updateService(service.id, {
+                            groupId: event.target.value,
+                          })
+                        }
+                        className="h-11 rounded-2xl border border-sky-200 bg-white px-3 text-base text-slate-700"
+                      >
+                        {groups.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </section>
+    );
+  }
+
+  function renderServiceSettings() {
+    return (
+      <section className="space-y-5">
+        <HeaderTitle
+          title="서비스 등록"
+          description="이름, 종류, 주소, 그룹, 설명만 등록합니다."
+        />
+
+        <div className="rounded-3xl border border-sky-100 bg-white/85 p-6 shadow-sm">
+          <div className="grid gap-5 md:grid-cols-2">
+            <EditableField
+              label="이름"
+              value={newService.name}
+              onChange={(value) =>
+                setNewService((prev) => ({ ...prev, name: value }))
+              }
+            />
+            <EditableSelect
+              label="서비스 종류"
+              value={newService.kind}
+              onChange={(value) =>
+                setNewService((prev) => ({
+                  ...prev,
+                  kind: value as ServiceKind,
+                }))
+              }
+              options={["서버&AI", "서비스", "미디어", "기타", "API"].map(
+                (item) => ({
+                  value: item,
+                  label: item,
+                })
+              )}
+            />
+            <EditableField
+              label="내부 주소"
+              value={newService.internalUrl}
+              onChange={(value) =>
+                setNewService((prev) => ({ ...prev, internalUrl: value }))
+              }
+            />
+            <EditableField
+              label="외부 주소"
+              value={newService.externalUrl}
+              onChange={(value) =>
+                setNewService((prev) => ({ ...prev, externalUrl: value }))
+              }
+            />
+            <EditableSelect
+              label="그룹"
+              value={newService.groupId}
+              onChange={(value) =>
+                setNewService((prev) => ({ ...prev, groupId: value }))
+              }
+              options={groups.map((group) => ({
+                value: group.id,
+                label: group.name,
+              }))}
+            />
+            <div className="md:col-span-2">
+              <EditableField
+                label="서비스 설명"
+                value={newService.description}
+                textarea
+                onChange={(value) =>
+                  setNewService((prev) => ({ ...prev, description: value }))
+                }
+              />
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={addService}
+            className="mt-6 inline-flex items-center gap-2 rounded-2xl bg-sky-500 px-5 py-3 text-base font-medium text-white hover:bg-sky-600"
+          >
+            <Plus size={18} />
+            서비스 추가
+          </button>
+        </div>
+
+        <div className="rounded-3xl border border-sky-100 bg-white/85 p-6 shadow-sm">
+          <h3 className="text-lg font-semibold text-slate-800">
+            등록된 서비스
+          </h3>
+          <div className="mt-4 space-y-2">
+            {sortedServices.map((service) => (
               <div
-                key={item.label}
-                className="rounded-2xl bg-black/20 p-4"
+                key={service.id}
+                className="flex items-center justify-between rounded-2xl bg-sky-50 px-4 py-3"
               >
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                  {item.label}
-                </p>
-                <p className="mt-2 break-words text-sm text-slate-300">
-                  {item.value}
-                </p>
+                <button
+                  onClick={() => setActiveView(service.id)}
+                  className="min-h-[24px] text-base text-slate-700 hover:text-sky-700"
+                >
+                  {displayServiceName(service.name)}
+                </button>
+                <button
+                  onClick={() => deleteService(service.id)}
+                  title="삭제"
+                  aria-label="삭제"
+                  className="rounded-xl p-2 text-rose-500 hover:bg-rose-50"
+                >
+                  <Trash2 size={18} />
+                </button>
               </div>
             ))}
           </div>
         </div>
+      </section>
+    );
+  }
 
-        <ServiceSettingsRenderer
-          serviceId={activeView}
-          onSaved={refreshDashboardData}
+  function renderLogs() {
+    return (
+      <section className="space-y-5">
+        <HeaderTitle
+          title="로그"
+          description="등록된 서비스와 접속 신호를 주고받은 기록만 표시합니다."
         />
 
-        <SimpleRecentLogStream items={recentLogs} />
-      </>
-    )}
-  </section>
-) : null}
-
-{activeView === "settings-services" ? (
-  <section className="space-y-6">
-    <div className="rounded-3xl bg-white/5 px-5 py-4">
-      <h2 className="text-2xl font-semibold">서비스</h2>
-      <p className="mt-2 text-sm text-slate-400">
-        새 서비스를 등록하고, 현재 등록된 서브서비스를 관리합니다.
-      </p>
-    </div>
-
-    <div className="rounded-3xl bg-white/5 p-6">
-      <h3 className="text-xl font-semibold">서비스 생성</h3>
-      <p className="mt-1 text-sm text-slate-400">
-        표시명, URL, 체크 우선순위, 종류 등 서비스 구동에 필요한 최소 항목만 등록합니다.
-      </p>
-
-      <div className="mt-5">
-        <ServiceAddPanel onAdded={refreshDashboardData} />
-      </div>
-    </div>
-
-    <div className="rounded-3xl bg-white/5 p-6">
-      <h3 className="text-xl font-semibold">서비스 목록</h3>
-<p className="mt-1 text-sm text-slate-400">
-  등록된 서비스는 상세페이지에서 직접 수정할 수 있습니다.
-</p>
-
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-  {settingsServices.map((service) => {
-    const Icon = serviceIconMap[service.icon];
-
-    return (
-      <button
-        key={service.id}
-        type="button"
-        onClick={() => {
-          setActiveView(service.id as ViewType);
-          setIsSidebarOpen(false);
-          setUrlActionState("idle");
-          setCheckState("idle");
-          setLiveCheck({
-            state: "idle",
-            responseTime: null,
-            checkedAt: "",
-          });
-        }}
-        className="w-full rounded-2xl border border-white/10 bg-black/20 p-4 text-left transition hover:bg-white/5"
-      >
-        <div className="flex items-start gap-3">
-          <span className="mt-0.5 shrink-0 text-slate-300">
-            {Icon ? <Icon size={18} /> : <FolderTree size={18} />}
-          </span>
-
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <p className="truncate text-sm font-medium text-slate-100">
-                {service.title}
-              </p>
-              <span className="inline-flex rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-slate-300">
-                {service.placement === "main" ? "메인" : "서브"}
-              </span>
-            </div>
-
-            <p className="mt-3 text-xs text-slate-400">
-              마지막 확인 시간: {formatStoredDate(service.metadata?.lastCheckedAt)}
-            </p>
-
-            <p className="mt-2 truncate text-xs text-slate-500">
-              {service.externalUrl || service.internalUrl || "-"}
-            </p>
+        <div className="rounded-3xl border border-sky-100 bg-white/85 p-6 shadow-sm">
+          <div className="space-y-2">
+            {logs.length === 0 ? (
+              <p className="text-base text-slate-500">아직 로그가 없습니다.</p>
+            ) : (
+              logs.map((log) => (
+                <div
+                  key={log.id}
+                  className="rounded-2xl bg-sky-50 px-4 py-3 text-base"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-slate-700">{log.serviceName}</span>
+                    <span className="text-sm text-slate-500">
+                      {log.createdAt}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm text-slate-500">{log.message}</p>
+                </div>
+              ))
+            )}
           </div>
         </div>
-      </button>
+      </section>
     );
-  })}
+  }
 
-  {settingsServices.length === 0 ? (
-    <p className="text-sm text-slate-500">
-      아직 등록된 서브서비스가 없습니다.
-    </p>
-  ) : null}
-</div>
-    </div>
-  </section>
-) : null}
+  return (
+    <main className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-cyan-50 text-base text-slate-800">
+      <aside
+        className={`fixed left-0 top-0 z-40 flex h-screen flex-col border-r border-sky-100 bg-sky-100/75 backdrop-blur transition-all ${
+          sidebarOpen ? "w-76" : "w-16"
+        }`}
+      >
+        <div className="flex h-16 items-center gap-3 px-3">
+          <button
+            onClick={() => setSidebarOpen((prev) => !prev)}
+            className="flex h-10 w-10 items-center justify-center rounded-2xl text-slate-700 hover:bg-white/80"
+          >
+            <Menu size={22} />
+          </button>
+          {sidebarOpen ? (
+            <span className="text-lg font-semibold text-slate-800">
+              Suenify Admin
+            </span>
+          ) : null}
+        </div>
 
-{activeView === "settings-dashboard" ? (
-  <section className="space-y-6">
-    <div className="rounded-3xl bg-white/5 px-5 py-4">
-      <h2 className="text-2xl font-semibold">{viewConfig.title}</h2>
-    </div>
+        {sidebarOpen ? (
+          <div className="relative px-3 pb-3">
+            <div className="flex items-center gap-3 rounded-2xl border border-sky-100 bg-white/85 px-4 py-3 shadow-sm">
+              <Search size={18} className="text-slate-400" />
+              <input
+                value={searchText}
+                onChange={(event) => setSearchText(event.target.value)}
+                placeholder="서비스 또는 설정 검색"
+                className="w-full bg-transparent text-base text-slate-800 outline-none placeholder:text-slate-400"
+              />
+            </div>
 
-    <DashboardSettingsPanel onSaved={refreshDashboardData} />
-  </section>
-) : null}
-
-{activeView === "settings-account" ? (
-  <section className="space-y-6">
-    <div className="rounded-3xl bg-white/5 px-5 py-4">
-      <h2 className="text-2xl font-semibold">{viewConfig.title}</h2>
-    </div>
-
-    <AccountSettingsPanel />
-  </section>
-) : null}
-
-{activeView === "settings-logs" ? (
-  <section className="space-y-6">
-    <div className="rounded-3xl bg-white/5 px-5 py-4">
-      <h2 className="text-2xl font-semibold">{viewConfig.title}</h2>
-    </div>
-
-    {isMounted ? (
-      <RecentLogsPanel
-        items={recentLogs}
-        isPaused={isLogPaused}
-        onTogglePause={() => setIsLogPaused((prev) => !prev)}
-        onRefresh={handleRefreshLogs}
-        onClear={clearRecentLogs}
-      />
-    ) : null}
-
-    <StatusHistoryPanel
-      items={statusHistory}
-      onClear={clearStatusHistory}
-    />
-  </section>
-) : null}
-
-{activeView === "settings-environment" ? (
-  <section className="space-y-6">
-    <div className="rounded-3xl bg-white/10 px-5 py-4">
-      <h2 className="text-2xl font-semibold">{viewConfig.title}</h2>
-    </div>
-
-    <EnvironmentSettingsPanel
-      themeMode={themeMode}
-      onChangeTheme={setThemeMode}
-    />
-  </section>
-) : null}
+            {searchResults.length > 0 ? (
+              <div className="absolute left-3 right-3 top-14 z-50 rounded-2xl border border-sky-100 bg-white p-2 shadow-xl">
+                {searchResults.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setActiveView(item.id);
+                      setSearchText("");
+                    }}
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-base hover:bg-sky-50"
+                  >
+                    <span className="text-slate-700">{item.label}</span>
+                    <span className="text-sm text-slate-400">{item.sub}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
-        </section>
-      </main>
-      
+        ) : null}
 
-      <StatusModal
-        isOpen={selectedCard !== null}
-        onClose={() => setSelectedCard(null)}
-        onOpenDetailView={handleOpenDetailView}
-        title={selectedCard?.title ?? ""}
-        status={selectedCard?.status ?? ""}
-        detail={selectedCard?.detail ?? ""}
-        sub={selectedCard?.sub ?? ""}
-        type={selectedCard?.type ?? "online"}
-        metricA={selectedCard?.metricA ?? ""}
-        metricB={selectedCard?.metricB ?? ""}
-        checkedAt={selectedCard?.checkedAt ?? ""}
-        ruleSummary={selectedCard?.ruleSummary ?? ""}
-        note={selectedCard?.note ?? ""}
-        directUrl={selectedCard?.directUrl ?? ""}
-        accessInfo={selectedCard?.accessInfo ?? ""}
-      />
+        <div className="flex-1 overflow-y-auto px-3">
+          <SidebarButton
+            icon={<House size={19} />}
+            label="홈"
+            active={activeView === "home"}
+            onClick={() => setActiveView("home")}
+          />
 
-      <DeleteServiceDialog
-        isOpen={isDeleteConfirmOpen}
-        onCancel={() => setIsDeleteConfirmOpen(false)}
-        onConfirm={handleDeleteCustomService}
-      />
+          <div className="mt-5 space-y-2">
+            {sortedGroups.map((group) => {
+              const groupServices = services
+                .filter((service) => service.groupId === group.id)
+                .sort((a, b) => a.order - b.order);
 
-      <FloatingPath activeView={activeView} />
-    </>
+              return (
+                <div key={group.id}>
+                  <button
+                    onClick={() =>
+                      setGroups((prev) =>
+                        prev.map((item) =>
+                          item.id === group.id
+                            ? { ...item, collapsed: !item.collapsed }
+                            : item
+                        )
+                      )
+                    }
+                    className="flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-left text-sm font-medium text-slate-500 hover:bg-white/60"
+                  >
+                    {group.collapsed ? (
+                      <ChevronRight size={16} />
+                    ) : (
+                      <ChevronDown size={16} />
+                    )}
+                    {sidebarOpen ? <span>{group.name}</span> : null}
+                  </button>
+
+                  {!group.collapsed ? (
+                    <div className="mt-1 space-y-1">
+                      {groupServices.map((service) => {
+                        const Icon = getServiceIcon(service.kind);
+                        return (
+                          <SidebarButton
+                            key={service.id}
+                            icon={<Icon size={18} />}
+                            label={displayServiceName(service.name)}
+                            active={activeView === service.id}
+                            onClick={() => setActiveView(service.id)}
+                          />
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="border-t border-sky-100 p-3">
+          <SidebarButton
+            icon={<Settings size={19} />}
+            label="설정"
+            active={activeView.startsWith("settings")}
+            onClick={() => {
+              setSettingsOpen((prev) => !prev);
+              if (!settingsOpen) {
+                setActiveView("settings-groups");
+              }
+            }}
+          />
+
+          {sidebarOpen && settingsOpen ? (
+            <div className="mt-2 space-y-1 pl-2">
+              <SidebarButton
+                icon={<Folder size={17} />}
+                label="그룹"
+                active={activeView === "settings-groups"}
+                onClick={() => setActiveView("settings-groups")}
+              />
+              <SidebarButton
+                icon={<Plus size={17} />}
+                label="서비스 등록"
+                active={activeView === "settings-services"}
+                onClick={() => setActiveView("settings-services")}
+              />
+              <SidebarButton
+                icon={<Activity size={17} />}
+                label="로그"
+                active={activeView === "settings-logs"}
+                onClick={() => setActiveView("settings-logs")}
+              />
+            </div>
+          ) : null}
+        </div>
+      </aside>
+
+      <section className={`${sidebarOpen ? "pl-76" : "pl-16"} transition-all`}>
+        <header className="sticky top-0 z-20 border-b border-sky-100 bg-sky-50/85 px-7 py-5 backdrop-blur">
+          <div className="flex items-center justify-between">
+            <div className="min-w-0">
+              <h1 className="min-h-[32px] truncate text-2xl font-semibold text-slate-800">
+                {activeService
+                  ? displayServiceName(activeService.name)
+                  : activeView.startsWith("settings")
+                  ? "설정"
+                  : "메인"}
+              </h1>
+              <p className="mt-1 text-base text-slate-500">
+                {activeGroup?.name ??
+                  (activeView.startsWith("settings")
+                    ? "관리 설정"
+                    : "서비스 목록")}
+              </p>
+            </div>
+
+            <button
+              onClick={() => setActiveView("home")}
+              className="flex h-11 w-11 items-center justify-center rounded-2xl text-slate-700 hover:bg-white/80"
+              title="홈"
+              aria-label="홈"
+            >
+              <House size={20} />
+            </button>
+          </div>
+        </header>
+
+        <div className="mx-auto max-w-6xl px-7 py-7">
+          {activeView === "home" ? renderHome() : null}
+          {activeService ? renderServiceDetail(activeService) : null}
+          {activeView === "settings-groups" ? renderGroupsSettings() : null}
+          {activeView === "settings-services" ? renderServiceSettings() : null}
+          {activeView === "settings-logs" ? renderLogs() : null}
+        </div>
+      </section>
+    </main>
   );
 }
+
+function HeaderTitle({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div>
+      <h2 className="text-3xl font-semibold text-slate-800">{title}</h2>
+      <p className="mt-2 text-base text-slate-500">{description}</p>
+    </div>
+  );
+}
+
+function SmallMetric({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-3xl border border-sky-100 bg-white/85 p-5 shadow-sm">
+      <div className="flex items-center gap-2 text-base text-slate-500">
+        {icon}
+        <span>{label}</span>
+      </div>
+      <p className="mt-3 text-2xl font-semibold text-slate-800">{value}</p>
+    </div>
+  );
+}
+
